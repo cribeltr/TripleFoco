@@ -143,10 +143,12 @@ th{position:relative}
 <header>
   <h1>GEB · Gestión de Equipos Biomédicos Críticos</h1>
   <span class="sub">Hospital Regional de Temuco — Programa 2026 · <span id="hoy-txt"></span></span>
+  <button class="btn mini sec" style="margin-left:8px" onclick="abrirGuia()">❓ Guía</button>
   <span class="sub derecha" id="resumen-head"></span>
 </header>
 <nav id="nav">
-  <button data-t="panel" class="act">📊 Panel</button>
+  <button data-t="hoy" class="act">🌅 Hoy</button>
+  <button data-t="panel">📊 Panel</button>
   <button data-t="inventario">🗂 Inventario</button>
   <button data-t="plan">🗓 Plan MP</button>
   <button data-t="asignacion">👷 Asignación</button>
@@ -194,7 +196,7 @@ const HITOS = {
 const LS_KEY = "geb_hrt_v3";   // clave nueva: parte limpio, sin datos precargados
 
 let S = null;          // estado global
-let tabActual = "panel";
+let tabActual = "hoy";
 let mesPlan = new Date().getFullYear()===ANIO ? new Date().getMonth() : 0;
 let mesAsig = mesPlan;
 let filtros = {q:"",fam:"",serv:"",estado:""};
@@ -436,7 +438,8 @@ function render(){
   const nop = S.equipos.filter(e=>!e.baja && e.estado!=="Operativo").length;
   $("#resumen-head").textContent = `${S.equipos.filter(e=>!e.baja).length} equipos · ${st} en ST · ${nop} no operativos`;
   const m = $("#main");
-  if(tabActual==="panel") m.innerHTML = vPanel(al);
+  if(tabActual==="hoy") m.innerHTML = vHoy(al);
+  else if(tabActual==="panel") m.innerHTML = vPanel(al);
   else if(tabActual==="inventario") m.innerHTML = vInventario();
   else if(tabActual==="plan") m.innerHTML = vPlan();
   else if(tabActual==="asignacion") m.innerHTML = vAsignacion();
@@ -468,6 +471,108 @@ function statsMes(m){
     }
   });
   return {prog,si,causal,fs,pend};
+}
+function vHoy(alertas){
+  const m = new Date().getFullYear()===ANIO ? new Date().getMonth() : 0;
+  if(!S.equipos.length) return vPanel(alertas);   // sin datos: bienvenida e importación
+  const sm=statsMes(m);
+  const urgentes=S.pendientes.filter(p2=>!p2.done&&(p2.prio===1||pendVencido(p2)))
+    .sort((a,b)=>(a.limite||"9999")<(b.limite||"9999")?-1:1);
+  const sinCl=S.pendientes.filter(p2=>!p2.done&&!p2.prio).length;
+  const rojas=alertas.filter(a=>a.nivel==="rojo").slice(0,6);
+  const estancados=S.correctivos.filter(c=>{
+    if(c.cerrado) return false;
+    const h=ultimoHito(c);
+    const d2=h?diasDesde(h.fecha):diasDesde(c.fecha);
+    return d2!=null&&d2>(S.config.alertaCorrectivo||20);
+  }).sort((a,b)=>diasDesde(ultimoHito(b)?.fecha||b.fecha)-diasDesde(ultimoHito(a)?.fecha||a.fecha));
+  const diasSync=S.ultimaImport?diasDesde(S.ultimaImport):null;
+  const fila=(txt,extra,accion)=>`<div class="item-p clic" onclick="${accion}"><span class="tit">${txt}</span>${extra||""}</div>`;
+  return `
+  <h2>🌅 Mi día — ${new Date().toLocaleDateString("es-CL",{weekday:"long",day:"numeric",month:"long"})}</h2>
+  ${bannerSapo()||`<div class="panel" style="border-left:4px solid var(--verde)">🐸 <b>Aún no eliges tu sapo de hoy.</b>
+    <span class="nota">Ve a Pendientes y marca con 🐸 la tarea más importante: hazla primero.</span>
+    <button class="btn mini sec" onclick="tabActual='pendientes';render()">Elegir sapo</button></div>`}
+  <div class="dosc">
+    <div>
+      <div class="panel" style="border-left:4px solid var(--rojo)">
+        <h3 style="margin-top:0">1️⃣ Urgente hoy (${urgentes.length})</h3>
+        ${urgentes.slice(0,8).map(p2=>{const e2=p2.eqId?eq(p2.eqId):null;
+          return fila(`<b>${esc(p2.titulo)}</b> ${e2?`<span class="tag gris">${esc(e2.inv||e2.serie)} · ${esc(e2.servicio)}</span>`:""}
+            ${p2.limite?`<span class="tag ${pendVencido(p2)?"NO":"gris"}">${fmtF(p2.limite)}</span>`:""}`,
+            "",`verPendiente(${p2.id})`);}).join("")||'<p class="nota">Nada urgente. 💪</p>'}
+        ${sinCl?`<p class="nota">📥 ${sinCl} pendiente(s) sin clasificar — <a href="#" onclick="tabActual='pendientes';render();return false">clasifícalos</a></p>`:""}
+      </div>
+      <div class="panel" style="border-left:4px solid var(--ambar)">
+        <h3 style="margin-top:0">2️⃣ Plazos y alertas críticas (${rojas.length})</h3>
+        ${rojas.map(a=>{const e2=a.eqId?eq(a.eqId):null;
+          const acc=a.corrId?`abrirCorrectivo(${a.corrId})`:(a.pendId?`verPendiente(${a.pendId})`:(e2?`abrirEquipo(${e2.id})`:""));
+          return fila(`<b>${esc(a.tipo)}</b> ${e2?`<span class="tag gris">${esc(e2.inv||"s/n")} · ${esc(e2.servicio)}</span>`:""}<br><span class="nota">${a.txt}</span>`,"",acc);
+        }).join("")||'<p class="nota">Sin alertas críticas. 🎉</p>'}
+        <p class="nota"><a href="#" onclick="tabActual='panel';render();return false">Ver todas las alertas en el Panel →</a></p>
+      </div>
+    </div>
+    <div>
+      <div class="panel" style="border-left:4px solid var(--azul)">
+        <h3 style="margin-top:0">3️⃣ Perseguir servicio técnico (${estancados.length})</h3>
+        <p class="nota">Casos sin novedades hace más de ${S.config.alertaCorrectivo||20} días: pregunta y anota la respuesta en el seguimiento.</p>
+        ${estancados.slice(0,6).map(c=>{const e2=eq(c.eqId);const h=ultimoHito(c);
+          return fila(`<b>Caso #${c.id}</b> ${esc(e2.equipo)} <span class="tag gris">${esc(e2.inv||e2.serie)}</span>
+            <span class="tag st">${estadoCorr(c)}</span> <span class="tag NO">${diasDesde(h?h.fecha:c.fecha)} días</span>
+            <span class="nota">resp: ${esc(h?.ingeniero||c.ingeniero||"—")}</span>`,"",`abrirCorrectivo(${c.id})`);}).join("")||'<p class="nota">Todo al día. ✅</p>'}
+      </div>
+      <div class="panel">
+        <h3 style="margin-top:0">4️⃣ Mantenciones de ${MESES_L[m]}</h3>
+        <div class="flex">
+          <span class="tag SI">${sm.si} realizadas</span>
+          <span class="tag C">${sm.causal} con causal</span>
+          <span class="tag NO">${sm.pend} sin resultado</span>
+          <button class="btn mini sec" onclick="irMes(${m})">Abrir Plan MP →</button>
+        </div>
+      </div>
+      <div class="panel" style="${diasSync==null||diasSync>1?"border-left:4px solid var(--ambar)":""}">
+        <h3 style="margin-top:0">5️⃣ Excel oficial</h3>
+        <p class="nota">${diasSync==null?"Nunca has sincronizado desde la app.":`Última sincronización: ${fmtF(S.ultimaImport)} (hace ${diasSync} día(s)).`}
+        ${diasSync==null||diasSync>1?"<b> Importa el maestro para detectar lo que falta traspasar.</b>":" 👍"}</p>
+        <label class="btn mini" style="display:inline-block">⬆ Importar Programación MP (.xlsm)
+          <input type="file" accept=".xlsm,.xlsx" style="display:none" onchange="importarMaestroUI(this)"></label>
+        <span id="imp-estado" class="nota"></span>
+      </div>
+      <div class="panel">
+        <h3 style="margin-top:0">⚡ Acciones rápidas</h3>
+        <div class="flex">
+          <button class="btn mini" onclick="nuevoCorrectivoDesde(null)">+ Registrar falla</button>
+          <button class="btn mini sec" onclick="tabActual='pendientes';render()">+ Pendiente</button>
+          <button class="btn mini sec" onclick="tabActual='informes';render()">📄 Informe del mes</button>
+          <button class="btn mini sec" onclick="exportarJSON()">💾 Respaldo</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function abrirGuia(){
+  $("#modal").innerHTML=`
+  <button class="cerrar" onclick="cerrarModal()">×</button>
+  <h2>❓ Guía rápida — cómo usar GEB en tu día a día</h2>
+  <h3>☀️ Cada mañana (pestaña Hoy)</h3>
+  <ol>
+    <li>🐸 Haz primero tu <b>sapo del día</b> (la tarea que más pesa).</li>
+    <li>Atiende lo <b>urgente</b> y los <b>plazos por vencer</b> (clic en cada tarjeta).</li>
+    <li><b>Persigue el servicio técnico</b>: pregunta por los casos estancados y anota la respuesta en el seguimiento del caso.</li>
+    <li><b>Importa el Excel oficial</b>: la app te dirá qué resultados faltan por traspasar a la planilla.</li>
+  </ol>
+  <h3>🗓 Flujo mensual</h3>
+  <ol>
+    <li><b>Inicio de mes</b>: Asignación → asigna ejecutores → exporta CSV / imprime y entrega protocolos.</li>
+    <li><b>Durante el mes</b>: Plan MP → registra cada resultado (SI abre el formulario con fecha, ejecutor, estado del equipo y observaciones; las causales C1–C8 calculan su plazo de 30 días).</li>
+    <li><b>Cierre de mes</b>: marca la documentación recibida (reporte interno / informe de empresa) y envía el <b>Informe</b> a cada servicio clínico.</li>
+  </ol>
+  <h3>🛠 Cuando falla un equipo</h3>
+  <p class="nota">Hoy → "+ Registrar falla" → busca el equipo escribiendo inventario o serie → registra folio SIGEM e ingeniero.
+  Luego agrega hitos (envío a ST, orden de compra, retorno, entrega). La ficha técnica del equipo se escribe sola.</p>
+  <h3>💾 Regla de oro</h3>
+  <p class="nota">Exporta un respaldo .json cada viernes (Datos) y guárdalo en una carpeta de red. El Excel sigue siendo el documento oficial: la app te avisa qué le falta.</p>`;
+  $("#modal-fondo").classList.add("abierto");
 }
 function vPanel(alertas){
   if(!S.equipos.length){
@@ -1734,6 +1839,7 @@ async function importarMaestro(buf){
     agregados++;
   });
   S.equipos.sort((a,b)=>a.id-b.id);
+  S.ultimaImport=hoyISO();
   guardar();
   return {actualizados, agregados, sinArchivo, soloApp, conflictos, total:Object.keys(nuevos).length};
 }
