@@ -136,11 +136,11 @@ const MESES_L = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agost
 const CAUSALES = {
   C1:"Imposibilidad de desocupar el equipo del paciente por indicación clínica",
   C2:"Equipo en servicio técnico",
-  C3:"Equipo no operativo a la espera de repuestos o accesorios",
+  C3:"Equipo no operativo, a la espera de repuestos o accesorios",
   C4:"Equipo en préstamo a otro hospital o institución",
-  C5:"No disponibilidad de HH del funcionario de equipamiento clínico",
-  C6:"No disponibilidad de HH del servicio técnico externo",
-  C7:"Ausencia justificada del funcionario responsable por más de 15 días",
+  C5:"No disponibilidad de horas hombre del funcionario SEC por alta carga laboral",
+  C6:"No disponibilidad de horas hombre del servicio técnico externo",
+  C7:"Ausencia justificada del funcionario SEC superior a 15 días",
   C8:"Contingencia hospitalaria"
 };
 const CAUSALES_30D = ["C1","C5","C6","C7","C8"];   // plazo 30 días corridos
@@ -207,18 +207,21 @@ function eq(id){ return S.equipos.find(e=>e.id===id); }
 function nombreEq(e){ return `${e.equipo||"Equipo"} ${e.marca||""} ${e.modelo||""}`.trim(); }
 function codResultado(r){
   if(!r) return "";
-  const u = r.toUpperCase();
+  const u = r.toUpperCase().trim();
   if(u==="SI") return "SI";
+  if(u==="SI-RA") return "SI-RA";
   if(/^C[1-8]$/.test(u)) return u;
   if(u==="FS") return "FS";
   if(u==="BAJA") return "BAJA";
-  if(u==="NO"||u==="NU") return "NO";
+  if(u==="NO") return "NO";
+  if(u==="NU") return "NU";
   return u;
 }
+function esEjecutada(c){ return c==="SI"||c==="SI-RA"; }
 function tagRes(r){
   const c = codResultado(r);
   if(!c) return "";
-  const cls = c==="SI"?"SI":(/^C/.test(c)?"C":(c==="FS"||c==="BAJA"?c:"NO"));
+  const cls = esEjecutada(c)?"SI":(/^C/.test(c)?"C":(c==="FS"||c==="BAJA"?c:"NO"));
   return `<span class="tag ${cls}">${esc(c)}</span>`;
 }
 function tagPlan(p){ return p?`<span class="tag ${esc(p)}">${esc(p)}</span>`:""; }
@@ -302,7 +305,7 @@ function calcAlertas(){
       const c = codResultado(r[1]);
       if(!/^C[1-8]$/.test(c)) return;
       // ¿se ejecutó después? buscamos SI en algún mes posterior
-      const ejecutada = e.resultado.some((r2,m2)=> m2>m && codResultado(r2[1])==="SI");
+      const ejecutada = e.resultado.some((r2,m2)=> m2>m && esEjecutada(codResultado(r2[1])));
       if(ejecutada) return;
       if(CAUSALES_30D.includes(c)){
         const lim = fechaLimite30(m);
@@ -337,7 +340,7 @@ function calcAlertas(){
   S.equipos.forEach(e=>{
     if(!FAM_EXTERNA.includes(e.fam)) return;
     e.resultado.forEach((r,m)=>{
-      if(codResultado(r[1])!=="SI") return;
+      if(!esEjecutada(codResultado(r[1]))) return;
       const d = S.docs[e.id+"-"+m];
       if(!d || !d.emp){
         const dias = Math.floor((ahora-finDeMes(m))/86400000);
@@ -397,9 +400,9 @@ function statsMes(m){
     const p = e.plan[m], r = codResultado(e.resultado[m][1]);
     if(["X","R","RA"].includes(p)){
       prog++;
-      if(r==="SI") si++;
+      if(esEjecutada(r)) si++;
       else if(/^C/.test(r)) causal++;
-      else if(r==="FS"||r==="BAJA"||r==="NO") fs++;
+      else if(r==="FS"||r==="BAJA"||r==="NO"||r==="NU") fs++;
       else pend++;
     }
   });
@@ -429,7 +432,7 @@ function vPanel(alertas){
     const r = asigMes[e.id] || e.respMP || "Sin asignar";
     if(!porResp[r]) porResp[r]={t:0,si:0};
     porResp[r].t++;
-    if(codResultado(e.resultado[m][1])==="SI") porResp[r].si++;
+    if(esEjecutada(codResultado(e.resultado[m][1]))) porResp[r].si++;
   });
   const filasResp = Object.entries(porResp).sort((a,b)=>b[1].t-a[1].t).map(([r,v])=>
     `<tr><td>${esc(r)}</td><td>${v.t}</td><td>${v.si}</td><td>${v.t-v.si}</td></tr>`).join("");
@@ -633,16 +636,19 @@ function vPlan(){
         <select onchange="setResultado(${e.id},${m},this.value)">
           <option value="">— pendiente —</option>
           <option ${r==="SI"?"selected":""} value="SI">SI (ejecutada)</option>
+          <option ${r==="SI-RA"?"selected":""} value="SI-RA">SI-RA (de año anterior)</option>
           ${Object.keys(CAUSALES).map(c=>`<option ${r===c?"selected":""} value="${c}">${c}</option>`).join("")}
-          <option ${r==="FS"?"selected":""} value="FS">FS (retiro circulación)</option>
+          <option ${r==="FS"?"selected":""} value="FS">FS (fuera de servicio)</option>
+          <option ${r==="NO"?"selected":""} value="NO">NO (no realizada)</option>
+          <option ${r==="NU"?"selected":""} value="NU">NU (no ubicable)</option>
           <option ${r==="BAJA"?"selected":""} value="BAJA">BAJA</option>
         </select>
         ${rep?`<div class="nota">Reprog. a ${MESES_L[rep.destino]}</div>`:""}
       </td>
-      <td>${esExt&&r==="SI"?`
+      <td>${esExt&&esEjecutada(r)?`
         <label class="subtarea"><input type="checkbox" ${doc.int?"checked":""} onchange="setDoc('${docKey}','int',this.checked)">Rep. interno</label>
         <label class="subtarea"><input type="checkbox" ${doc.emp?"checked":""} onchange="setDoc('${docKey}','emp',this.checked)">Inf. empresa</label>`
-        :(r==="SI"?`<label class="subtarea"><input type="checkbox" ${doc.int?"checked":""} onchange="setDoc('${docKey}','int',this.checked)">Protocolo recibido</label>`:"")}</td>
+        :(esEjecutada(r)?`<label class="subtarea"><input type="checkbox" ${doc.int?"checked":""} onchange="setDoc('${docKey}','int',this.checked)">Protocolo recibido</label>`:"")}</td>
     </tr>`;}).join("");
   return `
   <h2>Plan de mantenciones preventivas — control de ejecución</h2>
@@ -672,8 +678,8 @@ function setResultado(id,m,v){
   e.resultado[m][0]=e.plan[m]?"X":"";
   e.resultado[m][1]=v;
   if(!v){ delete S.reprog[id+"-"+m]; guardar(); render(); return; }
-  if(v==="SI"){
-    agregarFicha(id,hoyISO(),`Mantención preventiva de ${MESES_L[m]} ejecutada, equipo operativo`);
+  if(v==="SI"||v==="SI-RA"){
+    agregarFicha(id,hoyISO(),`Mantención preventiva de ${MESES_L[m]} ejecutada${v==="SI-RA"?" (correspondiente al año anterior)":""}, equipo operativo`);
   }else if(/^C[1-8]$/.test(v)){
     let destino=null;
     if(m<11){
@@ -953,7 +959,7 @@ function cerrarCaso(cid){
   const e=eq(c.eqId); e.estado="Operativo";
   agregarFicha(c.eqId,hoyISO(),`Equipo entregado al servicio clínico, caso #${c.id} cerrado. Equipo operativo.`);
   // recordatorio MP pendiente si hay causal C2/C3 sin ejecutar
-  const pendMP=e.resultado.some((r,m)=>/^C[234]$/.test(codResultado(r[1])) && !e.resultado.some((r2,m2)=>m2>m&&codResultado(r2[1])==="SI"));
+  const pendMP=e.resultado.some((r,m)=>/^C[234]$/.test(codResultado(r[1])) && !e.resultado.some((r2,m2)=>m2>m&&esEjecutada(codResultado(r2[1]))));
   if(pendMP){
     S.pendientes.push({id:S.nextPend++, titulo:`Ejecutar MP pendiente al retorno — ${nombreEq(e)} (Inv. ${e.inv})`,
       eqId:e.id, limite:hoyISO(), notas:"El equipo retornó de ST con una MP reprogramada por causal C2/C3/C4: debe ejecutarse de inmediato.",
@@ -1071,6 +1077,21 @@ function vDatos(){
     </div>
   </div>
   <div class="panel">
+    <h3>📥 Actualizar desde el Excel maestro (Programación MP ${ANIO})</h3>
+    <p>Importa el archivo <b>.xlsm</b> del programa: se leen las hojas <b>PMP_2026</b> (programación X / R / RA / PM) y
+    <b>Registro_MP-2026</b> (resultados Si, Si-RA, C1–C8, FS, No, NU, Baja), columnas B a AE
+    <b>excluyendo Q (Observación) y S (Responsable MP)</b>, que se mantienen como están en la aplicación.</p>
+    <p class="nota">La fusión <b>no borra nada registrado aquí</b>: fichas técnicas, correctivos, pendientes,
+    asignaciones y estados se conservan. Para los meses, el valor del archivo manda; si el archivo viene vacío
+    en un mes donde tú ya registraste algo en la app, se conserva lo tuyo. Equipos con ID nuevo se agregan.
+    Recomendación: exporta un respaldo antes de importar.</p>
+    <div class="flex">
+      <label class="btn" style="display:inline-block">⬆ Importar Programación MP (.xlsm)
+        <input type="file" accept=".xlsm,.xlsx" style="display:none" onchange="importarMaestroUI(this)"></label>
+      <span id="imp-estado" class="nota"></span>
+    </div>
+  </div>
+  <div class="panel">
     <h3>Ejecutores (lista desplegable de responsables)</h3>
     <p class="nota">Esta lista alimenta los menús desplegables de asignación mensual, correctivos e hitos. Un nombre por línea.</p>
     <textarea rows="6" id="resp-lista">${esc(S.responsables.join("\n"))}</textarea>
@@ -1118,6 +1139,217 @@ function exportarFichasCSV(){
 function guardarResponsables(){
   S.responsables=$("#resp-lista").value.split("\n").map(s=>s.trim()).filter(Boolean);
   guardar(); alert("Lista guardada."); render();
+}
+
+/* ====================== Lector de Excel (.xlsm/.xlsx) ====================== */
+/* Lee el ZIP del archivo Office con DecompressionStream (nativo de Chrome/Edge),
+   sin librerías externas, para funcionar sin internet. */
+async function zipInflar(u8){
+  const ds=new DecompressionStream("deflate-raw");
+  const st=new Blob([u8]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+async function zipEntradas(buf){
+  const b=new Uint8Array(buf), dv=new DataView(buf);
+  // localizar End of Central Directory
+  let eocd=-1;
+  for(let i=b.length-22;i>=Math.max(0,b.length-66000);i--){
+    if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;}
+  }
+  if(eocd<0) throw new Error("El archivo no es un Excel válido (.xlsm/.xlsx).");
+  const total=dv.getUint16(eocd+10,true);
+  let pos=dv.getUint32(eocd+16,true);
+  const td=new TextDecoder();
+  const out={};
+  for(let n=0;n<total;n++){
+    if(dv.getUint32(pos,true)!==0x02014b50) break;
+    const metodo=dv.getUint16(pos+10,true);
+    const csize=dv.getUint32(pos+20,true);
+    const nlen=dv.getUint16(pos+28,true), xlen=dv.getUint16(pos+30,true), clen=dv.getUint16(pos+32,true);
+    const offLocal=dv.getUint32(pos+42,true);
+    const nombre=td.decode(b.subarray(pos+46,pos+46+nlen));
+    const lnlen=dv.getUint16(offLocal+26,true), lxlen=dv.getUint16(offLocal+28,true);
+    const ini=offLocal+30+lnlen+lxlen;
+    out[nombre]={datos:b.subarray(ini,ini+csize), metodo};
+    pos+=46+nlen+xlen+clen;
+  }
+  return out;
+}
+async function zipLeer(entradas,nombre){
+  const e=entradas[nombre];
+  if(!e) return null;
+  const datos = e.metodo===0 ? e.datos : await zipInflar(e.datos);
+  return new TextDecoder().decode(datos);
+}
+function desXML(t){
+  return t.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"')
+    .replace(/&apos;/g,"'").replace(/&#x([0-9a-fA-F]+);/g,(s,h)=>String.fromCodePoint(parseInt(h,16)))
+    .replace(/&#(\d+);/g,(s,d)=>String.fromCodePoint(+d)).replace(/&amp;/g,"&");
+}
+function colNum(ref){ // "AB12" -> columna 28
+  let c=0;
+  for(const ch of ref){ if(ch>="A"&&ch<="Z") c=c*26+(ch.charCodeAt(0)-64); else break; }
+  return c;
+}
+async function leerHoja(entradas,rutaHoja,ss){
+  const xml=await zipLeer(entradas,rutaHoja);
+  if(xml==null) throw new Error("No se encontró la hoja en el archivo.");
+  const filas={};
+  for(const m of xml.matchAll(/<c\s+([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
+    const attrs=m[1], cuerpo=m[2]||"";
+    const ref=(attrs.match(/r="([^"]+)"/)||[])[1];
+    if(!ref) continue;
+    const tipo=(attrs.match(/t="([^"]+)"/)||[])[1]||"";
+    let val="";
+    if(tipo==="inlineStr"){
+      val=[...cuerpo.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x=>desXML(x[1])).join("");
+    }else{
+      const v=(cuerpo.match(/<v[^>]*>([\s\S]*?)<\/v>/)||[])[1];
+      if(v==null) continue;
+      val = tipo==="s" ? (ss[+v]??"") : desXML(v);
+    }
+    const fila=+ref.replace(/^[A-Z]+/,""), col=colNum(ref);
+    if(!filas[fila]) filas[fila]={};
+    filas[fila][col]=String(val).trim();
+  }
+  return filas;
+}
+async function leerLibro(buf){
+  const entradas=await zipEntradas(buf);
+  const ssXml=await zipLeer(entradas,"xl/sharedStrings.xml");
+  const ss=ssXml?[...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m=>
+    [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(t=>desXML(t[1])).join("")):[];
+  const wb=await zipLeer(entradas,"xl/workbook.xml");
+  const rels=await zipLeer(entradas,"xl/_rels/workbook.xml.rels");
+  const mapaRel={};
+  for(const m of rels.matchAll(/<Relationship\b[^>]*>/g)){
+    const id=(m[0].match(/Id="([^"]+)"/)||[])[1];
+    const tgt=(m[0].match(/Target="([^"]+)"/)||[])[1];
+    if(id&&tgt) mapaRel[id]=tgt;
+  }
+  const hojas={};
+  for(const m of wb.matchAll(/<sheet\b[^>]*>/g)){
+    const nombre=(m[0].match(/name="([^"]+)"/)||[])[1];
+    const rid=(m[0].match(/r:id="([^"]+)"/)||[])[1];
+    if(nombre&&rid&&mapaRel[rid])
+      hojas[desXML(nombre)]="xl/"+mapaRel[rid].replace(/^\/?(xl\/)?/,"");
+  }
+  return {entradas,ss,hojas};
+}
+
+/* ====================== Importar maestro PMP ====================== */
+const VALORES_PLAN=["X","R","RA","PM"];
+function valLimpio(v){ v=(v==null?"":String(v)).trim(); return v==="0"||v==="N/A"||v==="n/a"?"":v; }
+function filaEncabezado(filas){
+  for(let f=1;f<=15;f++) if(filas[f] && String(filas[f][2]||"").trim()==="ID") return f;
+  throw new Error('No se encontró la fila de encabezado (columna B = "ID").');
+}
+async function importarMaestro(buf){
+  const libro=await leerLibro(buf);
+  if(!libro.hojas["PMP_2026"]) throw new Error('El archivo no contiene la hoja "PMP_2026".');
+  const pmp=await leerHoja(libro.entradas,libro.hojas["PMP_2026"],libro.ss);
+  const hReg=libro.hojas["Registro_MP-2026"];
+  const reg=hReg?await leerHoja(libro.entradas,hReg,libro.ss):null;
+
+  // ---- PMP_2026: columnas B..AE, excluyendo Q (observación) y S (responsable MP)
+  const hdr=filaEncabezado(pmp);
+  const nuevos={};   // id -> datos del archivo
+  let famAnterior="";
+  const filasOrden=Object.keys(pmp).map(Number).filter(f=>f>hdr).sort((a,b)=>a-b);
+  for(const f of filasOrden){
+    const fila=pmp[f];
+    const id=parseInt(fila[2],10);
+    if(isNaN(id)) continue;
+    let fam=valLimpio(fila[1]);
+    if(fam) famAnterior=fam; else fam=famAnterior;
+    const plan=[];
+    for(let i=0;i<12;i++){
+      const v=valLimpio(fila[20+i]).toUpperCase();
+      plan.push(VALORES_PLAN.includes(v)?v:"");
+    }
+    nuevos[id]={
+      fam, carpeta:valLimpio(fila[3]), inv:valLimpio(fila[4]), equipo:valLimpio(fila[5]),
+      servicio:valLimpio(fila[6]), unidad:valLimpio(fila[7]), ubicacion:valLimpio(fila[8]),
+      proc:valLimpio(fila[9]), marca:valLimpio(fila[10]), modelo:valLimpio(fila[11]),
+      serie:(fila[12]==null?"":String(fila[12])).trim(), anio:valLimpio(fila[13]),
+      clasif:valLimpio(fila[15]), frec:valLimpio(fila[18]), plan,
+      resultado:null, obsReg:""
+    };
+  }
+  if(!Object.keys(nuevos).length) throw new Error("No se encontraron equipos en la hoja PMP_2026.");
+
+  // ---- Registro_MP-2026: pares P/R por mes (columnas T..AQ), excluyendo Q y S
+  if(reg){
+    const hdr2=filaEncabezado(reg);
+    for(const f of Object.keys(reg).map(Number).filter(x=>x>hdr2).sort((a,b)=>a-b)){
+      const fila=reg[f];
+      const id=parseInt(fila[2],10);
+      if(isNaN(id)||!nuevos[id]) continue;
+      const res=[];
+      for(let i=0;i<12;i++){
+        const p=valLimpio(fila[20+2*i]).toUpperCase();
+        res.push([VALORES_PLAN.includes(p)?p:"", valLimpio(fila[21+2*i])]);
+      }
+      nuevos[id].resultado=res;
+      nuevos[id].obsReg=valLimpio(fila[44]);
+    }
+  }
+
+  // ---- Fusión: el archivo manda en datos de equipo, plan y resultados;
+  //      la app conserva fichas/correctivos/pendientes, estado, baja,
+  //      observación (col. Q) y responsable MP (col. S)
+  const CAMPOS=["fam","carpeta","inv","equipo","servicio","unidad","ubicacion","proc","marca","modelo","serie","anio","clasif","frec"];
+  let actualizados=0, agregados=0, sinArchivo=0;
+  const vistos=new Set();
+  S.equipos.forEach(e=>{
+    const n=nuevos[e.id];
+    if(!n){ sinArchivo++; return; }
+    vistos.add(e.id);
+    CAMPOS.forEach(k=>{ if(n[k]!=="") e[k]=n[k]; });
+    for(let i=0;i<12;i++){
+      if(n.plan[i]) e.plan[i]=n.plan[i];
+      if(n.resultado){
+        if(n.resultado[i][0]) e.resultado[i][0]=n.resultado[i][0];
+        if(n.resultado[i][1]) e.resultado[i][1]=n.resultado[i][1];
+      }
+    }
+    if(n.obsReg) e.obsReg=n.obsReg;
+    actualizados++;
+  });
+  Object.entries(nuevos).forEach(([id,n])=>{
+    id=+id;
+    if(vistos.has(id)) return;
+    S.equipos.push({
+      id, ...Object.fromEntries(CAMPOS.map(k=>[k,n[k]])),
+      obs:"", respMP:"", plan:n.plan,
+      resultado:n.resultado||Array.from({length:12},()=>["",""]),
+      obsReg:n.obsReg, estado:"Operativo", baja:false
+    });
+    agregados++;
+  });
+  S.equipos.sort((a,b)=>a.id-b.id);
+  guardar();
+  return {actualizados, agregados, sinArchivo, total:Object.keys(nuevos).length};
+}
+async function importarMaestroUI(inp){
+  const f=inp.files[0];
+  if(!f) return;
+  inp.value="";
+  if(typeof DecompressionStream==="undefined")
+    return alert("Este navegador no soporta la lectura de Excel. Usa Chrome o Edge actualizados.");
+  $("#imp-estado").textContent="Leyendo "+f.name+"…";
+  try{
+    const buf=await f.arrayBuffer();
+    const r=await importarMaestro(buf);
+    render();
+    $("#imp-estado").innerHTML=`✔ Importación completada: <b>${r.actualizados}</b> equipos actualizados, `+
+      `<b>${r.agregados}</b> nuevos agregados`+
+      (r.sinArchivo?`, <b>${r.sinArchivo}</b> equipos de la app no venían en el archivo (se conservan tal cual)`:"")+
+      `. Fichas técnicas, correctivos, pendientes, observaciones (col. Q) y responsables MP (col. S) se mantuvieron intactos.`;
+  }catch(e){
+    console.error(e);
+    $("#imp-estado").innerHTML=`<span style="color:var(--rojo)">✘ Error al importar: ${esc(e.message)}</span>`;
+  }
 }
 
 /* ====================== Inicio ====================== */

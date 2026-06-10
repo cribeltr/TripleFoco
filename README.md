@@ -29,6 +29,15 @@ Todos los cambios se guardan automáticamente en el navegador
 | Generar el Excel de asignación mensual | **Asignación mensual**: responsables, exportación CSV e impresión |
 | Ficha técnica en papel | Historial cronológico por equipo, alimentado automáticamente, imprimible |
 
+## Actualizar desde el Excel maestro
+
+En la pestaña **Datos → Actualizar desde el Excel maestro** puedes importar
+el `.xlsm` de Programación MP directamente en el navegador (sin internet).
+Se leen las hojas `PMP_2026` y `Registro_MP-2026` (columnas B–AE,
+excluyendo Q Observación y S Responsable MP) y se fusionan con los datos de
+la aplicación **sin borrar** fichas técnicas, correctivos, pendientes,
+asignaciones ni estados. Equipos con ID nuevo se agregan automáticamente.
+
 ## Mantenimiento
 
 - `plantilla.html` es el código fuente de la app (con marcador `__DATA__`).
