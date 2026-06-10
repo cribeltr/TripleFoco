@@ -116,6 +116,7 @@ button.btn.mini{padding:3px 8px;font-size:12px}
   <button data-t="inventario">Inventario</button>
   <button data-t="plan">Plan MP</button>
   <button data-t="asignacion">Asignación mensual</button>
+  <button data-t="informes">Informe servicios</button>
   <button data-t="correctivos">Correctivos / ST</button>
   <button data-t="pendientes">Pendientes</button>
   <button data-t="datos">Datos</button>
@@ -170,7 +171,7 @@ function seed(){
   // importando el Excel maestro desde el Panel o la pestaña Datos
   return {
     version:3, equipos:[], fichas:{}, correctivos:[], pendientes:[],
-    asig:{}, docs:{}, reprog:{}, responsables:RESPONSABLES_BASE.slice(),
+    asig:{}, docs:{}, reprog:{}, mpEjec:{}, responsables:RESPONSABLES_BASE.slice(),
     config:{alertaST:30, alertaCorrectivo:20}, nextCorr:1, nextPend:1
   };
 }
@@ -184,6 +185,7 @@ function cargar(){
   guardar();
 }
 function normalizar(){
+  S.mpEjec = S.mpEjec || {};
   // hitos en orden cronológico aunque se hayan registrado en desorden
   (S.correctivos||[]).forEach(c=>{
     ordenarHitos(c);
@@ -384,6 +386,7 @@ function render(){
   else if(tabActual==="inventario") m.innerHTML = vInventario();
   else if(tabActual==="plan") m.innerHTML = vPlan();
   else if(tabActual==="asignacion") m.innerHTML = vAsignacion();
+  else if(tabActual==="informes") m.innerHTML = vInformes();
   else if(tabActual==="correctivos") m.innerHTML = vCorrectivos();
   else if(tabActual==="pendientes") m.innerHTML = vPendientes();
   else if(tabActual==="datos") m.innerHTML = vDatos();
@@ -693,6 +696,9 @@ function vPlan(){
           <option ${r==="BAJA"?"selected":""} value="BAJA">BAJA</option>
         </select>
         ${rep?`<div class="nota">Reprog. a ${MESES_L[rep.destino]}</div>`:""}
+        ${(function(){const d=S.mpEjec[e.id+"-"+m];if(!d||!esEjecutada(r))return "";
+          return `<div class="nota">${fmtF(d.f)} · ${esc(d.e||"s/ejecutor")} · ${esc(d.st||"")}
+          <button class="x-btn" style="color:var(--azul)" title="Editar ejecución" onclick="abrirEjecucion(${e.id},${m},'${r}')">✎</button></div>`;})()}
       </td>
       <td>${esExt&&esEjecutada(r)?`
         <label class="subtarea"><input type="checkbox" ${doc.int?"checked":""} onchange="setDoc('${docKey}','int',this.checked)">Rep. interno</label>
@@ -724,12 +730,11 @@ function vPlan(){
 }
 function setResultado(id,m,v){
   const e=eq(id);
+  if(v==="SI"||v==="SI-RA"){ abrirEjecucion(id,m,v); return; }  // se confirma en el formulario
   e.resultado[m][0]=e.plan[m]?"X":"";
   e.resultado[m][1]=v;
-  if(!v){ delete S.reprog[id+"-"+m]; guardar(); render(); return; }
-  if(v==="SI"||v==="SI-RA"){
-    agregarFicha(id,hoyISO(),`Mantención preventiva de ${MESES_L[m]} ejecutada${v==="SI-RA"?" (correspondiente al año anterior)":""}, equipo operativo`,(S.asig[m]||{})[id]||e.respMP||"");
-  }else if(/^C[1-8]$/.test(v)){
+  if(!v){ delete S.reprog[id+"-"+m]; delete S.mpEjec[id+"-"+m]; guardar(); render(); return; }
+  if(/^C[1-8]$/.test(v)){
     let destino=null;
     if(m<11){
       const resp=prompt(`Causal ${v}: ${CAUSALES[v]}\n\n¿A qué mes se reprograma? (número 1-12, vacío = sin definir aún)`, String(m+2));
@@ -754,6 +759,45 @@ function setResultado(id,m,v){
   guardar(); render();
 }
 function setDoc(k,c,v){ if(!S.docs[k])S.docs[k]={}; S.docs[k][c]=v; guardar(); render(); }
+function abrirEjecucion(id,m,v){
+  const e=eq(id);
+  const d=S.mpEjec[id+"-"+m]||{};
+  const sug=d.e||(S.asig[m]||{})[id]||"";
+  $("#modal").innerHTML=`
+  <button class="cerrar" onclick="cerrarModal()">×</button>
+  <h2>Registrar ejecución de MP — ${esc(nombreEq(e))}</h2>
+  <p class="nota">Inv. ${esc(e.inv)||"s/n"} · ${esc(e.servicio)} · ${MESES_L[m]} ${ANIO} · resultado en planilla: <b>${esc(v)}</b></p>
+  <div class="flex">
+    <label>Fecha de ejecución<br><input type="date" id="me-fecha" value="${d.f||hoyISO()}"></label>
+    <label>Ejecutor<br>${selEjecutores("me-ejec",sug,true)}</label>
+    <label>Estado del equipo tras la MP<br>
+      <select id="me-estado">
+        <option ${d.st!=="No operativo"?"selected":""}>Operativo</option>
+        <option ${d.st==="No operativo"?"selected":""}>No operativo</option>
+      </select></label>
+  </div>
+  <label>Observaciones (ej: batería con falla, se solicita repuesto)</label>
+  <textarea id="me-obs" rows="2">${esc(d.o||"")}</textarea>
+  <div class="flex" style="margin-top:10px">
+    <button class="btn" onclick="guardarEjecucion(${id},${m},'${v}')">Guardar</button>
+    <button class="btn sec" onclick="cerrarModal()">Cancelar</button>
+  </div>
+  <p class="nota">La mantención queda <b>${esc(v)}</b> en la planilla aunque el equipo quede no operativo:
+  el estado se registra por separado y aparece en el informe mensual del servicio. Si el equipo quedó
+  con falla, registra además el correctivo desde la ficha del equipo.</p>`;
+  $("#modal-fondo").classList.add("abierto");
+}
+function guardarEjecucion(id,m,v){
+  const e=eq(id);
+  const fecha=$("#me-fecha").value||hoyISO();
+  const ejec=$("#me-ejec").value, est=$("#me-estado").value, obs=$("#me-obs").value.trim();
+  e.resultado[m][0]=e.plan[m]?"X":"";
+  e.resultado[m][1]=v;
+  S.mpEjec[id+"-"+m]={f:fecha,e:ejec,st:est,o:obs};
+  e.estado=est;
+  agregarFicha(id,fecha,`Mantención preventiva de ${MESES_L[m]} ejecutada${v==="SI-RA"?" (correspondiente al año anterior)":""}. Equipo ${est.toLowerCase()}.${obs?" "+obs:""}`,ejec);
+  guardar(); cerrarModal();
+}
 
 /* ====================== Asignación mensual ====================== */
 function vAsignacion(){
@@ -1361,6 +1405,7 @@ async function importarMaestro(buf){
   //      observación (col. Q) y responsable MP (col. S)
   const CAMPOS=["fam","carpeta","inv","equipo","servicio","unidad","ubicacion","proc","marca","modelo","serie","anio","clasif","frec"];
   let actualizados=0, agregados=0, sinArchivo=0;
+  const soloApp=[], conflictos=[];   // diferencias entre la app y el Excel oficial
   const vistos=new Set();
   S.equipos.forEach(e=>{
     const n=nuevos[e.id];
@@ -1371,7 +1416,14 @@ async function importarMaestro(buf){
       if(n.plan[i]) e.plan[i]=n.plan[i];
       if(n.resultado){
         if(n.resultado[i][0]) e.resultado[i][0]=n.resultado[i][0];
-        if(n.resultado[i][1]) e.resultado[i][1]=n.resultado[i][1];
+        const vArch=n.resultado[i][1], vApp=e.resultado[i][1];
+        if(vArch){
+          if(vApp && codResultado(vApp)!==codResultado(vArch))
+            conflictos.push({id:e.id, m:i, app:vApp, arch:vArch});
+          e.resultado[i][1]=vArch;
+        }else if(vApp){
+          soloApp.push({id:e.id, m:i, res:vApp});
+        }
       }
     }
     if(n.obsReg) e.obsReg=n.obsReg;
@@ -1390,7 +1442,7 @@ async function importarMaestro(buf){
   });
   S.equipos.sort((a,b)=>a.id-b.id);
   guardar();
-  return {actualizados, agregados, sinArchivo, total:Object.keys(nuevos).length};
+  return {actualizados, agregados, sinArchivo, soloApp, conflictos, total:Object.keys(nuevos).length};
 }
 async function importarMaestroUI(inp){
   const f=inp.files[0];
@@ -1410,12 +1462,119 @@ async function importarMaestroUI(inp){
       `. Lo registrado en la aplicación se mantuvo intacto.`;
     const el=$("#imp-estado");
     if(el) el.innerHTML=msg; else alert(msg);
+    if(r.soloApp.length||r.conflictos.length) mostrarReporteImport(r);
   }catch(e){
     console.error(e);
     const msg="✘ Error al importar: "+e.message;
     const el=$("#imp-estado");
     if(el) el.innerHTML=`<span style="color:var(--rojo)">${esc(msg)}</span>`; else alert(msg);
   }
+}
+
+/* ====================== Reporte de diferencias con el Excel oficial ====================== */
+let _repImp=null;
+function mostrarReporteImport(r){
+  _repImp=r;
+  const filaSolo=x=>{const e=eq(x.id); const d=S.mpEjec[x.id+"-"+x.m]||{};
+    return `<tr><td>${esc(e.inv)||esc(e.serie)}</td><td>${esc(e.equipo)} ${esc(e.marca)}</td>
+    <td>${esc(e.servicio)}</td><td>${MESES[x.m]}</td><td>${tagRes(x.res)}</td>
+    <td class="nota">${d.f?fmtF(d.f):""} ${esc(d.e||"")} ${esc(d.st||"")}</td></tr>`;};
+  const filaConf=x=>{const e=eq(x.id);
+    return `<tr><td>${esc(e.inv)||esc(e.serie)}</td><td>${esc(e.equipo)} ${esc(e.marca)}</td>
+    <td>${esc(e.servicio)}</td><td>${MESES[x.m]}</td><td>${tagRes(x.app)} → ${tagRes(x.arch)}</td></tr>`;};
+  $("#modal").innerHTML=`
+  <button class="cerrar" onclick="cerrarModal()">×</button>
+  <h2>Diferencias con el Excel oficial</h2>
+  ${r.soloApp.length?`
+  <h3>⚠️ Registrado en la app pero FALTA en el Excel oficial (${r.soloApp.length})</h3>
+  <p class="nota">Estos resultados debes traspasarlos a la planilla oficial. Exporta la lista para tenerla a mano;
+  al reimportar el Excel ya corregido, desaparecerán de este listado.</p>
+  <div class="flex no-print" style="margin-bottom:8px">
+    <button class="btn mini" onclick="exportarTraspaso()">⬇ Exportar lista de traspaso (CSV)</button>
+    <button class="btn mini sec" onclick="window.print()">🖨 Imprimir</button>
+  </div>
+  <div class="tablewrap" style="max-height:35vh"><table>
+    <tr><th>Inventario</th><th>Equipo</th><th>Servicio</th><th>Mes</th><th>Resultado en la app</th><th>Ejecución</th></tr>
+    ${r.soloApp.map(filaSolo).join("")}
+  </table></div>`:""}
+  ${r.conflictos.length?`
+  <h3>El Excel traía un valor distinto y reemplazó al de la app (${r.conflictos.length})</h3>
+  <p class="nota">El Excel es el documento oficial, por eso su valor manda. Revisa que el cambio sea correcto.</p>
+  <div class="tablewrap" style="max-height:30vh"><table>
+    <tr><th>Inventario</th><th>Equipo</th><th>Servicio</th><th>Mes</th><th>App → Excel</th></tr>
+    ${r.conflictos.map(filaConf).join("")}
+  </table></div>`:""}`;
+  $("#modal-fondo").classList.add("abierto");
+}
+function exportarTraspaso(){
+  if(!_repImp) return;
+  const filas=[["ID","N° Inventario","Equipo","Servicio","Mes","Resultado (app)","Fecha ejecución","Ejecutor","Estado del equipo","Observaciones"]];
+  _repImp.soloApp.forEach(x=>{
+    const e=eq(x.id), d=S.mpEjec[x.id+"-"+x.m]||{};
+    filas.push([e.id,e.inv,e.equipo,e.servicio,MESES_L[x.m],x.res,d.f||"",d.e||"",d.st||"",d.o||""]);
+  });
+  descargarCSV(filas,`Traspaso_a_Excel_${hoyISO()}.csv`);
+}
+
+/* ====================== Informe mensual por servicio ====================== */
+let mesInf = new Date().getFullYear()===ANIO ? new Date().getMonth() : 0;
+let servInf = "";
+function vInformes(){
+  const m=mesInf;
+  const conMP=S.equipos.filter(e=>!e.baja && ["X","R","RA","PM"].includes(e.plan[m]));
+  const servicios=[...new Set(conMP.map(e=>e.servicio).filter(Boolean))].sort();
+  const lista=conMP.filter(e=>!servInf||e.servicio===servInf);
+  const grupos={};
+  lista.forEach(e=>{ const s=e.servicio||"(sin servicio)"; (grupos[s]=grupos[s]||[]).push(e); });
+  const bloque=(srv,eqs)=>`
+    <h3 style="page-break-before:auto">${esc(srv)} — ${MESES_L[m]} ${ANIO}</h3>
+    <table style="margin-bottom:14px">
+      <tr><th>Inventario</th><th>Equipo</th><th>Ubicación</th><th>Prog.</th><th>Resultado</th>
+      <th>Fecha ejec.</th><th>Ejecutor</th><th>Estado del equipo</th><th>Observaciones</th></tr>
+      ${eqs.map(e=>{
+        const r=codResultado(e.resultado[m][1]);
+        const d=S.mpEjec[e.id+"-"+m]||{};
+        const est=d.st || e.estado || "";
+        const clsEst=est==="Operativo"?"op":(est==="En servicio técnico"?"st":"nop");
+        return `<tr><td>${esc(e.inv)||esc(e.serie)}</td>
+        <td>${esc(e.equipo)} ${esc(e.marca)} ${esc(e.modelo)}</td>
+        <td>${esc(e.unidad)} ${esc(e.ubicacion)}</td>
+        <td>${tagPlan(e.plan[m])}</td>
+        <td>${tagRes(r)||'<span class="nota">pendiente</span>'}</td>
+        <td>${d.f?fmtF(d.f):"—"}</td><td>${esc(d.e||"")}</td>
+        <td>${est?`<span class="tag ${clsEst}">${esc(est)}</span>`:""}</td>
+        <td class="nota">${esc(d.o||"")}${/^C/.test(r)?` ${esc(CAUSALES[r]||"")}`:""}</td></tr>`;
+      }).join("")}
+    </table>`;
+  return `
+  <h2>Informe mensual de mantenciones por servicio clínico</h2>
+  <div class="fila-filtros no-print">
+    <select onchange="mesInf=+this.value;render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+    <select onchange="servInf=this.value;render()">
+      <option value="">— Todos los servicios —</option>
+      ${servicios.map(s=>`<option ${servInf===s?"selected":""}>${esc(s)}</option>`).join("")}
+    </select>
+    <button class="btn" onclick="exportarInformeCSV()">⬇ Exportar Excel (CSV)</button>
+    <button class="btn sec" onclick="window.print()">🖨 Imprimir informe</button>
+    <span class="derecha nota">${lista.length} equipos con MP en ${MESES_L[m]}</span>
+  </div>
+  <p class="solo-print"><b>Hospital Regional de Temuco — Equipamiento clínico crítico</b><br>
+  Informe de mantenciones preventivas y estado de equipos · ${MESES_L[m]} ${ANIO}</p>
+  ${Object.entries(grupos).sort((a,b)=>a[0]<b[0]?-1:1).map(([s,eqs])=>bloque(s,eqs)).join("")
+    ||'<p class="nota">Sin mantenciones programadas para este filtro.</p>'}`;
+}
+function exportarInformeCSV(){
+  const m=mesInf;
+  const filas=[["Servicio","N° Inventario","Equipo","Marca","Modelo","Unidad","Ubicación","Programado","Resultado","Fecha ejecución","Ejecutor","Estado del equipo","Observaciones"]];
+  S.equipos.forEach(e=>{
+    if(e.baja||!["X","R","RA","PM"].includes(e.plan[m])) return;
+    if(servInf&&e.servicio!==servInf) return;
+    const r=codResultado(e.resultado[m][1]);
+    const d=S.mpEjec[e.id+"-"+m]||{};
+    filas.push([e.servicio,e.inv,e.equipo,e.marca,e.modelo,e.unidad,e.ubicacion,e.plan[m],
+      r||"Pendiente",d.f||"",d.e||"",d.st||e.estado||"",(d.o||"")+(/^C/.test(r)?" "+(CAUSALES[r]||""):"")]);
+  });
+  descargarCSV(filas,`Informe_servicios_${MESES_L[m]}_${ANIO}.csv`);
 }
 
 /* ====================== Inicio ====================== */
