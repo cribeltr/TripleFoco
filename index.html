@@ -115,7 +115,9 @@ button.btn.mini{padding:3px 8px;font-size:12px}
 .ac-item:hover{background:var(--azul-claro)}
 .ac-cont input{width:100%}
 .matriz{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:900px){.matriz{grid-template-columns:1fr}}
+.kanban{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;align-items:start}
+@media(max-width:1300px){.kanban{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.matriz,.kanban{grid-template-columns:1fr}}
 .cuad{border-radius:12px;padding:12px;min-height:120px}
 .cuad h4{margin:0 0 2px;font-size:14px}
 .cuad .desc{font-size:11px;opacity:.75;margin-bottom:8px}
@@ -1565,14 +1567,33 @@ function vPendientes(){
           title="${esc(PRIO[n].d)}" onclick="setPrio(${p2.id},${n})">${PRIO[n].n}</button>`).join(" ")}
       </div>`;}).join("")}
   </div>`:""}
-  <div class="matriz">
+  <div class="kanban">
     ${[1,2,3,4].map(n=>{
       const items=abiertos.filter(p2=>p2.prio===n);
       return `<div class="cuad" style="background:${PRIO[n].bg}">
         <h4 style="color:${PRIO[n].c}">${PRIO[n].n} (${items.length})</h4>
         <div class="desc">${esc(PRIO[n].d)}</div>
-        ${items.map(itemMatriz).join("")||'<p class="nota">— vacío —</p>'}
+        ${items.map(p2=>{
+          const e2=p2.eqId?eq(p2.eqId):null;
+          return `<div class="item-p clic" onclick="clickFila(event,()=>verPendiente(${p2.id}))">
+            <span class="tit"><b>${esc(p2.titulo)}</b><br>
+              ${e2?`<span class="tag gris">${esc(e2.inv||e2.serie)} · ${esc(e2.servicio)}</span>`:""}
+              ${p2.limite?`<span class="tag ${pendVencido(p2)?"NO":"gris"}">${fmtF(p2.limite)}</span>`:""}</span>
+            <span style="white-space:nowrap">
+              <input type="checkbox" title="Hecho" onchange="togglePend(${p2.id})">
+              ${n>1?`<button class="x-btn" style="color:var(--azul)" title="Subir prioridad" onclick="setPrio(${p2.id},${n-1})">◀</button>`:""}
+              ${n<4?`<button class="x-btn" style="color:var(--azul)" title="Bajar prioridad" onclick="setPrio(${p2.id},${n+1})">▶</button>`:""}
+              <button class="btn-sapo ${p2.sapo?"act":""}" title="Sapo de hoy" onclick="setSapo(${p2.id})">🐸</button>
+              <button class="x-btn" title="Eliminar" onclick="delPend(${p2.id})">×</button>
+            </span>
+          </div>`;}).join("")||'<p class="nota">— vacío —</p>'}
       </div>`;}).join("")}
+    <div class="cuad" style="background:var(--verde-bg)">
+      <h4 style="color:var(--verde)">✅ Hecho (${listos.length})</h4>
+      <div class="desc">Completados recientes</div>
+      ${listos.slice(0,10).map(p2=>`<div class="item-p"><span class="tit" style="text-decoration:line-through;color:var(--gris)">${esc(p2.titulo)}</span>
+        <input type="checkbox" checked title="Reabrir" onchange="togglePend(${p2.id})"></div>`).join("")||'<p class="nota">— vacío —</p>'}
+    </div>
   </div>`;
   return `
   <h2>Pendientes y recordatorios</h2>
@@ -1580,7 +1601,7 @@ function vPendientes(){
   <div class="fila-filtros">
     <input type="text" id="pend-q" placeholder="Buscar pendiente por texto, equipo, inventario, servicio…"
       value="${esc(filtroPend)}" oninput="filtroPend=this.value;render()" style="min-width:280px;flex:1">
-    <button class="btn ${vistaPend==="matriz"?"":"sec"} mini" onclick="vistaPend='matriz';render()">⬛ Matriz Eisenhower</button>
+    <button class="btn ${vistaPend==="matriz"?"":"sec"} mini" onclick="vistaPend='matriz';render()">📋 Tablero</button>
     <button class="btn ${vistaPend==="lista"?"":"sec"} mini" onclick="vistaPend='lista';render()">☰ Lista detallada</button>
     ${q?`<span class="nota">${abiertos.length+listos.length} coincidencia(s) ·
       <a href="#" onclick="filtroPend='';render();return false">limpiar</a></span>`:""}
@@ -1598,8 +1619,8 @@ function vPendientes(){
     ? (abiertos.length?matriz:'<p class="nota">Nada pendiente. 🎉</p>')
     : `<h3>Abiertos (${abiertos.length})</h3>
        ${abiertos.map(tarjeta).join("")||'<p class="nota">Nada pendiente.</p>'}`}
-  <h3>Completados recientes</h3>
-  ${listos.map(tarjeta).join("")||'<p class="nota">—</p>'}`;
+  ${vistaPend==="lista"?`<h3>Completados recientes</h3>
+  ${listos.map(tarjeta).join("")||'<p class="nota">—</p>'}`:""}`;
 }
 function pendDuplicado(t,eqId){
   const tt=t.trim().toLowerCase();
