@@ -38,7 +38,9 @@ th,td{border:1px solid var(--borde);padding:5px 8px;text-align:left;vertical-ali
 th{background:var(--azul-claro);font-size:12px;white-space:nowrap;position:sticky;top:0}
 tbody tr:nth-child(even) td, tr:nth-child(even) td{background:#fafcff}
 tr:hover td{background:#eaf3ff !important}
-tr.clic{cursor:pointer}
+.clic{cursor:pointer}
+.alerta.clic:hover,.item-p.clic:hover{filter:brightness(.96)}
+div.clic:active{transform:scale(.998)}
 .tablewrap{max-height:62vh;overflow:auto;border:1px solid var(--borde);border-radius:6px}
 .fila-filtros{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
 input[type=text],input[type=date],input[type=number],select,textarea{
@@ -215,6 +217,17 @@ function guardar(){
 
 /* ====================== Utilidades ====================== */
 const $ = s=>document.querySelector(s);
+function clickFila(ev,fn){
+  // ignora clics sobre controles internos (botones, selects, casillas…)
+  if(ev.target.closest("select,input,button,label,a,textarea")) return;
+  fn();
+}
+function verPendiente(id){
+  const pd=S.pendientes.find(x=>x.id===id);
+  cerrarModal();
+  tabActual="pendientes"; vistaPend="lista"; filtroPend=pd?pd.titulo:"";
+  render();
+}
 function esc(t){ return String(t==null?"":t).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function hoyISO(){ return new Date().toISOString().slice(0,10); }
 function fmtF(iso){ if(!iso) return "—"; const [a,m,d]=iso.split("-"); return `${d}-${m}-${a}`; }
@@ -486,12 +499,13 @@ function vPanel(alertas){
     `<tr><td>${esc(r)}</td><td>${v.t}</td><td>${v.si}</td><td>${v.t-v.si}</td></tr>`).join("");
   const alHtml = alertas.length? alertas.slice(0,40).map(a=>{
     const e2 = a.eqId?eq(a.eqId):null;
-    return `<div class="alerta ${a.nivel==="rojo"?"":a.nivel}">
+    const destino = a.corrId?`abrirCorrectivo(${a.corrId})`
+      :(a.pendId?`verPendiente(${a.pendId})`
+      :(e2?`abrirEquipo(${e2.id})`:""));
+    return `<div class="alerta ${a.nivel==="rojo"?"":a.nivel} ${destino?"clic":""}"
+      ${destino?`onclick="clickFila(event,()=>{${destino}})" title="Clic para abrir el detalle"`:""}>
       <b>${esc(a.tipo)}${e2?` — ${esc(nombreEq(e2))} · Inv. ${esc(e2.inv||"s/n")} · ${esc(e2.servicio)}`:""}</b>
       ${a.txt}
-      <span class="acc">${e2?`<button class="btn mini sec" onclick="abrirEquipo(${e2.id})">Ver equipo</button>`:""}
-      ${a.corrId?`<button class="btn mini sec" onclick="abrirCorrectivo(${a.corrId})">Ver caso</button>`:""}
-      ${a.pendId?`<button class="btn mini sec" onclick="tabActual='pendientes';render()">Ver pendiente</button>`:""}</span>
     </div>`;}).join("") : `<p class="nota">Sin alertas activas. 🎉</p>`;
   const q1=S.pendientes.filter(p=>!p.done&&p.prio===1);
   const sinCl=S.pendientes.filter(p=>!p.done&&!p.prio);
@@ -500,7 +514,7 @@ function vPanel(alertas){
   ${bannerSapo()}
   ${q1.length||sinCl.length?`<div class="panel" style="border-left:4px solid var(--rojo)">
     <b>🔥 Para hacer ahora (${q1.length})</b>
-    ${q1.slice(0,5).map(p2=>`<div class="nota">• ${esc(p2.titulo)}${p2.limite?` — límite ${fmtF(p2.limite)}`:""}</div>`).join("")}
+    ${q1.slice(0,5).map(p2=>`<div class="nota clic" onclick="verPendiente(${p2.id})">• ${esc(p2.titulo)}${p2.limite?` — límite ${fmtF(p2.limite)}`:""}</div>`).join("")}
     ${sinCl.length?`<div class="nota" style="margin-top:4px">📥 ${sinCl.length} pendiente(s) sin clasificar —
       <a href="#" onclick="tabActual='pendientes';render();return false">clasifícalos en la matriz</a></div>`:""}
   </div>`:""}
@@ -650,11 +664,12 @@ function pintarModalEquipo(){
     </div>
     <div>
       <h3>Correctivos del equipo</h3>
-      ${corrs.length?corrs.map(c=>`<div class="alerta ${c.cerrado?"azul":"ambar"}">
-        <b>Caso #${c.id} · ${estadoCorr(c)} · ${fmtF(c.fecha)}</b>${esc(c.hitos[0]?.descripcion||c.descripcion||"")}
-        <span class="acc"><button class="btn mini sec" onclick="abrirCorrectivo(${c.id})">Abrir</button></span></div>`).join(""):'<p class="nota">Sin correctivos.</p>'}
+      ${corrs.length?corrs.map(c=>`<div class="alerta ${c.cerrado?"azul":"ambar"} clic"
+        onclick="abrirCorrectivo(${c.id})" title="Clic para abrir el caso">
+        <b>Caso #${c.id} · ${estadoCorr(c)} · ${fmtF(c.fecha)}</b>${esc(c.hitos[0]?.descripcion||c.descripcion||"")}</div>`).join(""):'<p class="nota">Sin correctivos.</p>'}
       <h3>Pendientes abiertos del equipo</h3>
-      ${pends.length?pends.map(p=>`<div class="alerta azul"><b>${esc(p.titulo)}</b>Límite: ${fmtF(p.limite)}</div>`).join(""):'<p class="nota">Sin pendientes.</p>'}
+      ${pends.length?pends.map(p=>`<div class="alerta azul clic" onclick="verPendiente(${p.id})" title="Clic para abrir el pendiente">
+        <b>${esc(p.titulo)}</b>Límite: ${fmtF(p.limite)}</div>`).join(""):'<p class="nota">Sin pendientes.</p>'}
     </div>
   </div>`;
 }
@@ -719,9 +734,9 @@ function vPlan(){
     const rep=S.reprog[e.id+"-"+m];
     const docKey=e.id+"-"+m, doc=S.docs[docKey]||{};
     const esExt=FAM_EXTERNA.includes(e.fam);
-    return `<tr>
+    return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))" title="Clic para abrir la ficha del equipo">
       <td>${esc(e.inv)||esc(e.serie)}<br><span class="nota">Carp. ${esc(e.carpeta)}</span></td>
-      <td class="clic" onclick="abrirEquipo(${e.id})"><b>${esc(e.equipo)}</b> ${esc(e.marca)} ${esc(e.modelo)}<br>
+      <td><b>${esc(e.equipo)}</b> ${esc(e.marca)} ${esc(e.modelo)}<br>
         <span class="nota">${esc(e.servicio)} · ${esc(e.unidad)} ${esc(e.ubicacion)}</span></td>
       <td>${tagPlan(e.plan[m])} ${esc(e.frec)}</td>
       <td>${esc((S.asig[m]||{})[e.id] || e.respMP || "—")}</td>
@@ -847,7 +862,7 @@ function vAsignacion(){
   const asigMes=S.asig[m]||{};
   const filas=lista.map(e=>{
     const sel=asigMes[e.id]||"";
-    return `<tr>
+    return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))">
       <td>${esc(e.carpeta)}</td><td>${esc(e.inv)||esc(e.serie)}</td>
       <td>${esc(e.equipo)}</td><td>${esc(e.servicio)}</td><td>${esc(e.unidad)}</td><td>${esc(e.ubicacion)}</td>
       <td>${esc(e.marca)}</td><td>${esc(e.modelo)}</td><td>${esc(e.serie)}</td>
@@ -1135,7 +1150,7 @@ function bannerSapo(){
   const s=sapoHoy();
   if(!s) return "";
   const e=s.eqId?eq(s.eqId):null;
-  return `<div class="sapo-banner">🐸 <b>Tu sapo de hoy:</b> ${esc(s.titulo)}
+  return `<div class="sapo-banner clic" onclick="clickFila(event,()=>verPendiente(${s.id}))" title="Clic para ver el detalle">🐸 <b>Tu sapo de hoy:</b> ${esc(s.titulo)}
     ${e?`<span class="tag gris">${esc(e.inv||e.serie)}</span>`:""}
     ${s.limite?`<span class="tag ${pendVencido(s)?"NO":"gris"}">límite ${fmtF(s.limite)}</span>`:""}
     <span class="derecha"><label class="subtarea" style="color:#fff">
@@ -1188,7 +1203,7 @@ function vPendientes(){
     </div>`;};
   const itemMatriz=p2=>{
     const e2=p2.eqId?eq(p2.eqId):null;
-    return `<div class="item-p">
+    return `<div class="item-p clic" onclick="clickFila(event,()=>verPendiente(${p2.id}))" title="Clic para ver el detalle">
       <input type="checkbox" onchange="togglePend(${p2.id})" title="Marcar como hecho">
       <span class="tit"><b>${esc(p2.titulo)}</b>
         ${e2?`<span class="tag gris">${esc(e2.inv||e2.serie)}</span>`:""}
@@ -1670,7 +1685,7 @@ function vInformes(){
         const d=S.mpEjec[e.id+"-"+m]||{};
         const est=d.st || e.estado || "";
         const clsEst=est==="Operativo"?"op":(est==="En servicio técnico"?"st":"nop");
-        return `<tr><td>${esc(e.inv)||esc(e.serie)}</td>
+        return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))"><td>${esc(e.inv)||esc(e.serie)}</td>
         <td>${esc(e.equipo)} ${esc(e.marca)} ${esc(e.modelo)}</td>
         <td>${esc(e.unidad)} ${esc(e.ubicacion)}</td>
         <td>${tagPlan(e.plan[m])}</td>
