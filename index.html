@@ -1241,7 +1241,7 @@ function bannerSapo(){
   if(!s) return "";
   const e=s.eqId?eq(s.eqId):null;
   return `<div class="sapo-banner clic" onclick="clickFila(event,()=>verPendiente(${s.id}))" title="Clic para ver el detalle">🐸 <b>Tu sapo de hoy:</b> ${esc(s.titulo)}
-    ${e?`<span class="tag gris">${esc(e.inv||e.serie)}</span>`:""}
+    ${e?`<span class="tag gris">${esc(e.inv||e.serie)} · ${esc(e.equipo)} · ${esc(e.servicio)}</span>`:""}
     ${s.limite?`<span class="tag ${pendVencido(s)?"NO":"gris"}">límite ${fmtF(s.limite)}</span>`:""}
     <span class="derecha"><label class="subtarea" style="color:#fff">
       <input type="checkbox" onchange="togglePend(${s.id})"> ¡Hecho!</label></span></div>`;
@@ -1272,7 +1272,8 @@ function vPendientes(){
         ${p.prio?`<span class="tag" style="background:${PRIO[p.prio].bg};color:${PRIO[p.prio].c}">${PRIO[p.prio].n}</span>`:""}
         ${!p.done?`<button class="btn-sapo ${p.sapo?"act":""}" title="Sapo de hoy" onclick="setSapo(${p.id})">🐸</button>`:""}
         ${p.limite?`<span class="tag ${vencido?"NO":"gris"}">límite ${fmtF(p.limite)}</span>`:""}
-        ${e?`<button class="btn mini sec" onclick="abrirEquipo(${e.id})">${esc(e.inv||e.serie)}</button>`:""}
+        ${e?`<button class="btn mini sec" onclick="abrirEquipo(${e.id})"
+          title="Abrir ficha del equipo">${esc(e.inv||e.serie)} · ${esc(e.equipo)} · ${esc(e.servicio)}</button>`:""}
         <span class="derecha nota">creado ${fmtF(p.creado)}
           <button class="x-btn no-print" title="Eliminar pendiente" onclick="delPend(${p.id})">×</button></span>
       </div>
@@ -1296,7 +1297,7 @@ function vPendientes(){
     return `<div class="item-p clic" onclick="clickFila(event,()=>verPendiente(${p2.id}))" title="Clic para ver el detalle">
       <input type="checkbox" onchange="togglePend(${p2.id})" title="Marcar como hecho">
       <span class="tit"><b>${esc(p2.titulo)}</b>
-        ${e2?`<span class="tag gris">${esc(e2.inv||e2.serie)}</span>`:""}
+        ${e2?`<span class="tag gris">${esc(e2.inv||e2.serie)} · ${esc(e2.equipo)} · ${esc(e2.servicio)}</span>`:""}
         ${p2.limite?`<span class="tag ${pendVencido(p2)?"NO":"gris"}">${fmtF(p2.limite)}</span>`:""}</span>
       <button class="btn-sapo ${p2.sapo?"act":""}" title="Marcar como el sapo de hoy (hazlo primero)" onclick="setSapo(${p2.id})">🐸</button>
       <select class="prio-sel" onchange="setPrio(${p2.id},this.value)" title="Reclasificar">
@@ -1312,7 +1313,7 @@ function vPendientes(){
       const e2=p2.eqId?eq(p2.eqId):null;
       return `<div class="item-p">
         <span class="tit"><b>${esc(p2.titulo)}</b>
-          ${e2?`<span class="tag gris">${esc(e2.inv||e2.serie)}</span>`:""}
+          ${e2?`<span class="tag gris">${esc(e2.inv||e2.serie)} · ${esc(e2.equipo)} · ${esc(e2.servicio)}</span>`:""}
           ${p2.limite?`<span class="tag ${pendVencido(p2)?"NO":"gris"}">${fmtF(p2.limite)}</span>`:""}
           ${pendVencido(p2)?'<span class="tag NO">VENCIDO</span>':""}</span>
         ${[1,2,3,4].map(n=>`<button class="btn mini" style="background:${PRIO[n].c}"
@@ -1355,12 +1356,20 @@ function vPendientes(){
   <h3>Completados recientes</h3>
   ${listos.map(tarjeta).join("")||'<p class="nota">—</p>'}`;
 }
+function pendDuplicado(t,eqId){
+  const tt=t.trim().toLowerCase();
+  const dup=S.pendientes.find(x=>!x.done && (x.eqId||null)===(eqId||null) && x.titulo.trim().toLowerCase()===tt);
+  if(!dup) return false;
+  const e=dup.eqId?eq(dup.eqId):null;
+  return !confirm(`Ya existe un pendiente abierto "${dup.titulo}"${e?` para el equipo ${e.inv||e.serie} (${e.equipo})`:""}.\n¿Crear otro de todos modos?`);
+}
 function addPend(){
   const t=$("#np-titulo").value.trim();
   if(!t) return alert("Escribe el pendiente.");
   let eqId=AC_SEL["np-eq"]||null;
   if(!eqId && $("#np-eq").value.trim() &&
      !confirm("No elegiste un equipo de la lista de coincidencias. ¿Crear el pendiente sin equipo asociado?")) return;
+  if(pendDuplicado(t,eqId)) return;
   S.pendientes.push({id:S.nextPend++, titulo:t, eqId, limite:$("#np-limite").value||null,
     notas:"", sub:[], updates:[], done:false, creado:hoyISO()});
   AC_SEL["np-eq"]=null;
@@ -1374,6 +1383,7 @@ function togglePendForm(){
 function crearPendienteEq(eqId){
   const t=$("#pf-titulo").value.trim();
   if(!t) return alert("Describe el pendiente.");
+  if(pendDuplicado(t,eqId)) return;
   S.pendientes.push({id:S.nextPend++, titulo:t, eqId, limite:$("#pf-limite").value||null,
     notas:"", sub:[], updates:[], done:false, creado:hoyISO()});
   guardar(); pintarModalEquipo();
