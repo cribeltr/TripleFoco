@@ -23,7 +23,7 @@ nav button{background:none;border:none;color:#cfe3ff;padding:11px 16px;font-size
 nav button:hover{color:#fff}
 nav button.act{color:#fff;border-bottom-color:#fff;font-weight:600}
 nav button .pill{background:var(--rojo);color:#fff;border-radius:10px;padding:0 7px;font-size:11px;margin-left:5px}
-main{padding:16px;max-width:1500px;margin:0 auto}
+main{padding:16px 24px;width:100%;margin:0}
 h2{font-size:17px;margin:4px 0 12px}
 h3{font-size:14px;margin:14px 0 8px}
 .cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
@@ -134,6 +134,9 @@ th{position:relative}
 .fc-lista{max-height:230px;overflow:auto}
 .fc-item{display:flex;gap:6px;align-items:flex-start;font-size:12px;padding:2px 0;cursor:pointer}
 .fc-acciones{display:flex;gap:6px;margin-bottom:4px}
+@media(max-width:1250px){.oc-lg{display:none}}
+@media(max-width:950px){.oc-md{display:none}}
+@media(max-width:700px){.oc-sm{display:none}}
 </style>
 </head>
 <body>
@@ -560,17 +563,17 @@ function irMes(m){ mesPlan=m; tabActual="plan"; render(); }
 
 /* ====================== Inventario ====================== */
 const COLS_INV=[
-  {k:"id",n:"ID",w:"4.5%"},
-  {k:"carpeta",n:"Carpeta",w:"6%"},
+  {k:"id",n:"ID",w:"4.5%",cls:"oc-sm"},
+  {k:"carpeta",n:"Carpeta",w:"6%",cls:"oc-lg"},
   {k:"inv",n:"Inventario",w:"10%"},
   {k:"equipo",n:"Equipo",w:"12.5%"},
-  {k:"marca",n:"Marca",w:"9%"},
-  {k:"modelo",n:"Modelo",w:"10.5%"},
-  {k:"serie",n:"Serie",w:"9.5%"},
+  {k:"marca",n:"Marca",w:"9%",cls:"oc-md"},
+  {k:"modelo",n:"Modelo",w:"10.5%",cls:"oc-sm"},
+  {k:"serie",n:"Serie",w:"9.5%",cls:"oc-md"},
   {k:"servicio",n:"Servicio",w:"13%"},
   {k:"estado",n:"Estado",w:"10.5%"},
   {k:"pend",n:"Pend.",w:"5.5%"},
-  {k:"act",n:"Últ. act.",w:"8.5%"}
+  {k:"act",n:"Últ. act.",w:"8.5%",cls:"oc-lg"}
 ];
 let filtroCol={};        // columna -> Set de valores elegidos
 let fcAbierto=null;      // columna con el desplegable abierto
@@ -651,13 +654,13 @@ function vInventario(){
     const np=+valCol(e,"pend");
     const act=valCol(e,"act");
     return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))">
-      <td>${e.id}</td><td>${esc(e.carpeta)}</td><td title="${esc(e.inv)}">${esc(e.inv)}</td>
-      <td title="${esc(e.equipo)}">${esc(e.equipo)}</td><td title="${esc(e.marca)}">${esc(e.marca)}</td>
-      <td title="${esc(e.modelo)}">${esc(e.modelo)}</td><td title="${esc(e.serie)}">${esc(e.serie)}</td>
+      <td class="oc-sm">${e.id}</td><td class="oc-lg">${esc(e.carpeta)}</td><td title="${esc(e.inv)}">${esc(e.inv)}</td>
+      <td title="${esc(e.equipo)}">${esc(e.equipo)}</td><td class="oc-md" title="${esc(e.marca)}">${esc(e.marca)}</td>
+      <td class="oc-sm" title="${esc(e.modelo)}">${esc(e.modelo)}</td><td class="oc-md" title="${esc(e.serie)}">${esc(e.serie)}</td>
       <td title="${esc(e.servicio)} · ${esc(e.unidad)} ${esc(e.ubicacion)}">${esc(e.servicio)}</td>
       <td>${e.baja?'<span class="tag BAJA">Baja</span>':tagEstado(e)}</td>
       <td>${np?`<span class="tag NO">${np}</span>`:'<span class="nota">0</span>'}</td>
-      <td>${act?fmtF(act):'<span class="nota">—</span>'}</td>
+      <td class="oc-lg">${act?fmtF(act):'<span class="nota">—</span>'}</td>
     </tr>`;}).join("");
   const hayFiltros=Object.keys(filtroCol).length;
   return `
@@ -671,7 +674,7 @@ function vInventario(){
   <table class="fija">
     <tr>${COLS_INV.map(c=>{
       const act=filtroCol[c.k]&&filtroCol[c.k].size;
-      return `<th style="width:${c.w}">${c.n}
+      return `<th style="width:${c.w}" class="${c.cls||""}">${c.n}
         <button class="fc-btn ${act?"act":""}" title="Filtrar ${esc(c.n)}"
           onclick="event.stopPropagation();toggleFC('${c.k}')">▾</button>
         ${fcAbierto===c.k?dropFC(c):""}</th>`;}).join("")}</tr>
