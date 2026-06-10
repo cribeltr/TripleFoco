@@ -232,12 +232,18 @@ function tagEstado(e){
   const cls = s==="Operativo"?"op":(s==="En servicio técnico"?"st":"nop");
   return `<span class="tag ${cls}">${esc(s)}</span>`;
 }
-function agregarFicha(eqId, fecha, texto, ejecutor){
+function agregarFicha(eqId, fecha, texto, ejecutor, estado){
   if(!S.fichas[eqId]) S.fichas[eqId]=[];
   const ev={f:fecha, t:texto};
   if(ejecutor) ev.e=ejecutor;
+  if(estado) ev.st=estado;
   S.fichas[eqId].push(ev);
   S.fichas[eqId].sort((a,b)=>a.f<b.f?-1:1);
+}
+function tagSt(st){
+  if(!st) return "";
+  const cls=st==="Operativo"?"op":(st==="En servicio técnico"?"st":"nop");
+  return `<span class="tag ${cls}">${esc(st)}</span>`;
 }
 function corrAbierto(eqId){
   return S.correctivos.find(c=>c.eqId===eqId && !c.cerrado);
@@ -555,7 +561,7 @@ function abrirEquipo(id){
 }
 function pintarModalEquipo(){
   const e = eq(modalEqId);
-  const ficha = (S.fichas[e.id]||[]).map((ev,i)=>({f:ev.f,t:ev.t,e:ev.e,i})).reverse();
+  const ficha = (S.fichas[e.id]||[]).map((ev,i)=>({f:ev.f,t:ev.t,e:ev.e,st:ev.st,i})).reverse();
   const corrs = S.correctivos.filter(c=>c.eqId===e.id);
   const pends = S.pendientes.filter(p=>p.eqId===e.id && !p.done);
   const grilla = MESES.map((mn,i)=>{
@@ -604,10 +610,16 @@ function pintarModalEquipo(){
       </div>
       <div class="flex no-print" style="margin-top:5px">
         ${selEjecutores("ft-ejecutor","","— ejecutor (opcional) —")}
+        <select id="ft-estado">
+          <option value="">— estado: sin cambio —</option>
+          <option>Operativo</option>
+          <option>No operativo</option>
+          <option>En servicio técnico</option>
+        </select>
         <button class="btn mini" id="ft-btn" onclick="addFicha(${e.id})">Agregar</button>
       </div>
       <div class="hist">${ficha.length?ficha.map(ev=>`<div class="ev"><span class="f">${fmtF(ev.f)}</span> — ${esc(ev.t)}
-        ${ev.e?`<span class="tag gris">${esc(ev.e)}</span>`:""}
+        ${ev.e?`<span class="tag gris">${esc(ev.e)}</span>`:""} ${tagSt(ev.st)}
         <button class="x-btn no-print" style="color:var(--azul)" title="Editar evento" onclick="editFicha(${e.id},${ev.i})">✎</button>
         <button class="x-btn no-print" title="Eliminar evento" onclick="delFicha(${e.id},${ev.i})">×</button></div>`).join(""):'<p class="nota">Sin eventos registrados.</p>'}</div>
     </div>
@@ -634,8 +646,11 @@ let fichaEdit=null;   // índice del evento en edición
 function addFicha(id){
   const f=$("#ft-fecha").value, t=$("#ft-texto").value.trim();
   if(!f||!t) return alert("Completa fecha y descripción.");
+  const st=$("#ft-estado").value;
   if(fichaEdit!=null){ S.fichas[id].splice(fichaEdit,1); fichaEdit=null; }
-  agregarFicha(id,f,t,$("#ft-ejecutor").value); guardar(); pintarModalEquipo();
+  agregarFicha(id,f,t,$("#ft-ejecutor").value,st);
+  if(st) eq(id).estado=st;   // el evento define el estado actual del equipo
+  guardar(); pintarModalEquipo();
 }
 function editFicha(id,i){
   const ev=S.fichas[id][i];
@@ -643,6 +658,7 @@ function editFicha(id,i){
   $("#ft-fecha").value=ev.f;
   $("#ft-texto").value=ev.t;
   $("#ft-ejecutor").value=ev.e||"";
+  $("#ft-estado").value=ev.st||"";
   $("#ft-btn").textContent="Guardar cambios";
   $("#ft-texto").focus();
 }
@@ -795,7 +811,7 @@ function guardarEjecucion(id,m,v){
   e.resultado[m][1]=v;
   S.mpEjec[id+"-"+m]={f:fecha,e:ejec,st:est,o:obs};
   e.estado=est;
-  agregarFicha(id,fecha,`Mantención preventiva de ${MESES_L[m]} ejecutada${v==="SI-RA"?" (correspondiente al año anterior)":""}. Equipo ${est.toLowerCase()}.${obs?" "+obs:""}`,ejec);
+  agregarFicha(id,fecha,`Mantención preventiva de ${MESES_L[m]} ejecutada${v==="SI-RA"?" (correspondiente al año anterior)":""}.${obs?" "+obs:""}`,ejec,est);
   guardar(); cerrarModal();
 }
 
@@ -932,7 +948,7 @@ function crearCorrectivo(){
     hitos:[{tipo:"asignacion",fecha,folio,ingeniero:ing,descripcion:desc}], seguimiento:[], cerrado:false};
   S.correctivos.push(c);
   eq(id).estado="No operativo";
-  agregarFicha(id,fecha,`Equipo en falla, folio SOL: ${folio||"s/f"}. ${desc}`,ing);
+  agregarFicha(id,fecha,`Equipo en falla, folio SOL: ${folio||"s/f"}. ${desc}`,ing,"No operativo");
   guardar();
   abrirCorrectivo(c.id);
 }
@@ -1013,7 +1029,8 @@ function addHito(cid){
   if(tipo==="envio") e.estado="En servicio técnico";
   else if(tipo==="retorno") e.estado="No operativo";
   const det=def.campos.map(([k,lbl])=>h[k]?`${lbl}: ${h[k]}`:"").filter(Boolean).join(", ");
-  agregarFicha(c.eqId,fecha,`${def.nombre}${det?" — "+det:""} (caso #${c.id})`,h.ingeniero||"");
+  const stHito = tipo==="envio"?"En servicio técnico":(tipo==="retorno"?"No operativo":(tipo==="entrega"?"Operativo":""));
+  agregarFicha(c.eqId,fecha,`${def.nombre}${det?" — "+det:""} (caso #${c.id})`,h.ingeniero||"",stHito);
   if(tipo==="entrega") alCerrarCaso(c);
   guardar(); pintarModalCorr();
 }
@@ -1070,9 +1087,21 @@ function cerrarCaso(cid){
 }
 
 /* ====================== Pendientes ====================== */
+let filtroPend="";
+function coincidePend(p,q){
+  if(!q) return true;
+  const e=p.eqId?eq(p.eqId):null;
+  const blob=[p.titulo,p.notas,
+    ...(p.sub||[]).map(s=>s.t),
+    ...(p.updates||[]).map(u=>u.t),
+    e?`${e.inv} ${e.serie} ${e.carpeta} ${e.equipo} ${e.marca} ${e.modelo} ${e.servicio}`:""
+  ].join(" ").toLowerCase();
+  return blob.includes(q.toLowerCase());
+}
 function vPendientes(){
-  const abiertos=S.pendientes.filter(p=>!p.done).sort((a,b)=>(a.limite||"9999")<(b.limite||"9999")?-1:1);
-  const listos=S.pendientes.filter(p=>p.done).slice().reverse().slice(0,30);
+  const q=filtroPend.trim();
+  const abiertos=S.pendientes.filter(p=>!p.done&&coincidePend(p,q)).sort((a,b)=>(a.limite||"9999")<(b.limite||"9999")?-1:1);
+  const listos=S.pendientes.filter(p=>p.done&&coincidePend(p,q)).slice().reverse().slice(0,30);
   const tarjeta=p=>{
     const e=p.eqId?eq(p.eqId):null;
     const vencido=p.limite&&p.limite<hoyISO()&&!p.done;
@@ -1102,6 +1131,12 @@ function vPendientes(){
     </div>`;};
   return `
   <h2>Pendientes y recordatorios</h2>
+  <div class="fila-filtros">
+    <input type="text" id="pend-q" placeholder="Buscar pendiente por texto, equipo, inventario, servicio…"
+      value="${esc(filtroPend)}" oninput="filtroPend=this.value;render()" style="min-width:320px;flex:1">
+    ${q?`<span class="nota">${abiertos.length+listos.length} coincidencia(s) ·
+      <a href="#" onclick="filtroPend='';render();return false">limpiar</a></span>`:""}
+  </div>
   <div class="panel no-print">
     <div class="flex">
       <input type="text" id="np-titulo" placeholder="Nuevo pendiente… (ej: pedir informe Dräger ventilador 2-112256)" style="flex:2;min-width:240px">
@@ -1234,10 +1269,10 @@ function exportarInventarioCSV(){
   descargarCSV(filas,`Inventario_PMP_${ANIO}_${hoyISO()}.csv`);
 }
 function exportarFichasCSV(){
-  const filas=[["N° Inventario","Equipo","Servicio","Fecha","Evento","Ejecutor"]];
+  const filas=[["N° Inventario","Equipo","Servicio","Fecha","Evento","Ejecutor","Estado del equipo"]];
   Object.entries(S.fichas).forEach(([id,evs])=>{
     const e=eq(+id); if(!e) return;
-    evs.forEach(ev=>filas.push([e.inv,e.equipo,e.servicio,ev.f,ev.t,ev.e||""]));
+    evs.forEach(ev=>filas.push([e.inv,e.equipo,e.servicio,ev.f,ev.t,ev.e||"",ev.st||""]));
   });
   descargarCSV(filas,`Fichas_tecnicas_${hoyISO()}.csv`);
 }
