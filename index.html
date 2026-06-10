@@ -345,7 +345,7 @@ document.addEventListener("click",ev=>{
   if(!ev.target.closest(".ac-cont"))
     document.querySelectorAll(".ac-lista").forEach(l=>l.style.display="none");
   if(fcAbierto && !ev.target.closest(".fc-drop") && !ev.target.closest(".fc-btn")){
-    fcAbierto=null; render();
+    fcAbierto=null; fcTabla=null; render();
   }
 });
 function selEjecutores(id, sel, conVacio){
@@ -559,7 +559,7 @@ function vPanel(alertas){
     </div>
   </div>`;
 }
-function irMes(m){ mesPlan=m; tabActual="plan"; render(); }
+function irMes(m){ mesPlan=m; FCF.plan={}; tabActual="plan"; render(); }
 
 /* ====================== Inventario ====================== */
 const COLS_INV=[
@@ -575,81 +575,130 @@ const COLS_INV=[
   {k:"pend",n:"Pend.",w:"5.5%"},
   {k:"act",n:"Últ. act.",w:"8.5%",cls:"oc-lg"}
 ];
-let filtroCol={};        // columna -> Set de valores elegidos
-let fcAbierto=null;      // columna con el desplegable abierto
-let fcQ="";              // búsqueda dentro del desplegable
+const COLS_PLAN=[
+  {k:"id",n:"ID",w:"3.5%",cls:"oc-sm"},
+  {k:"carpeta",n:"Carp.",w:"4.5%",cls:"oc-lg"},
+  {k:"inv",n:"Inventario",w:"8.5%"},
+  {k:"equipo",n:"Equipo",w:"10%"},
+  {k:"marca",n:"Marca",w:"7.5%",cls:"oc-md"},
+  {k:"modelo",n:"Modelo",w:"8.5%",cls:"oc-md"},
+  {k:"serie",n:"Serie",w:"8%",cls:"oc-lg"},
+  {k:"servicio",n:"Servicio",w:"11%"},
+  {k:"plan",n:"Plan",w:"5%"},
+  {k:"resp",n:"Responsable",w:"9.5%",cls:"oc-sm"},
+  {k:"res",n:"Resultado del mes",w:"13%"},
+  {k:"doc",n:"Documentación",w:"10.5%",nf:true,cls:"oc-md"}
+];
 function valCol(e,k){
   if(k==="pend") return String(S.pendientes.filter(x=>!x.done&&x.eqId===e.id).length);
   if(k==="act"){ const f=S.fichas[e.id]; return f&&f.length?f[f.length-1].f:""; }
   if(k==="estado") return e.baja?"Baja":(e.estado||"Operativo");
   return String(e[k]??"").trim();
 }
-function pasaFiltrosCol(e,excepto){
-  for(const c of COLS_INV){
-    if(c.k===excepto) continue;
-    const set=filtroCol[c.k];
-    if(set&&!set.has(valCol(e,c.k))) return false;
-  }
-  return true;
+function valColPlan(e,k){
+  if(k==="plan") return e.plan[mesPlan]||"";
+  if(k==="resp") return (S.asig[mesPlan]||{})[e.id]||e.respMP||"(sin asignar)";
+  if(k==="res"){ const r=codResultado(e.resultado[mesPlan][1]); return r||"(pendiente)"; }
+  return String(e[k]??"").trim();
 }
 function pasaBusqueda(e){
   if(!filtros.q) return true;
   const q=filtros.q.toLowerCase();
   return `${e.id} ${e.inv} ${e.carpeta} ${e.equipo} ${e.marca} ${e.modelo} ${e.serie} ${e.servicio} ${e.unidad} ${e.ubicacion}`.toLowerCase().includes(q);
 }
-function toggleFC(k){ fcAbierto = fcAbierto===k?null:k; fcQ=""; render(); }
-let _fcVals=[];   // valores del desplegable abierto (evita escapar comillas en línea)
-function toggleValFC(k,idx){
-  const val=_fcVals[idx];
-  let set=filtroCol[k];
+function basePlan(e){
+  if(e.baja) return false;
+  if(!["X","R","RA"].includes(e.plan[mesPlan])) return false;
+  if(filtrosPlan.fam && e.fam!==filtrosPlan.fam) return false;
+  const r=codResultado(e.resultado[mesPlan][1]);
+  if(filtrosPlan.solo==="pend" && r) return false;
+  if(filtrosPlan.solo==="causal" && !/^C/.test(r)) return false;
+  if(filtrosPlan.q){
+    const q=filtrosPlan.q.toLowerCase();
+    if(!`${e.id} ${e.inv} ${e.carpeta} ${e.equipo} ${e.marca} ${e.modelo} ${e.serie} ${e.servicio}`.toLowerCase().includes(q)) return false;
+  }
+  return true;
+}
+/* ---- filtros tipo Excel, genéricos para varias tablas ---- */
+let fcTabla=null, fcAbierto=null, fcQ="", _fcVals=[];
+const FCF={inv:{}, plan:{}};
+function fcCfg(t){
+  return t==="inv"
+    ? {cols:COLS_INV, base:pasaBusqueda, val:valCol}
+    : {cols:COLS_PLAN, base:basePlan, val:valColPlan};
+}
+function fcPasa(t,e,excepto){
+  const cfg=fcCfg(t), fs=FCF[t];
+  for(const c of cfg.cols){
+    if(c.k===excepto||c.nf) continue;
+    const set=fs[c.k];
+    if(set&&!set.has(cfg.val(e,c.k))) return false;
+  }
+  return true;
+}
+function fcFilas(t,excepto){
+  const cfg=fcCfg(t);
+  return S.equipos.filter(e=>cfg.base(e)&&fcPasa(t,e,excepto));
+}
+function toggleFC(t,k){
+  if(fcTabla===t&&fcAbierto===k){ fcTabla=null; fcAbierto=null; }
+  else { fcTabla=t; fcAbierto=k; }
+  fcQ=""; render();
+}
+function toggleValFC(t,idx){
+  const val=_fcVals[idx], k=fcAbierto, cfg=fcCfg(t);
+  let set=FCF[t][k];
   if(!set){
-    // estaba "todo seleccionado": crear el conjunto con todos menos este valor
     set=new Set();
-    S.equipos.forEach(e=>{ if(pasaBusqueda(e)&&pasaFiltrosCol(e,k)) set.add(valCol(e,k)); });
+    fcFilas(t,k).forEach(e=>set.add(cfg.val(e,k)));
     set.delete(val);
-    filtroCol[k]=set;
+    FCF[t][k]=set;
   }else if(set.has(val)) set.delete(val);
   else set.add(val);
   render();
 }
-function limpiarFC(k){ delete filtroCol[k]; render(); }
-function ningunoFC(k){ filtroCol[k]=new Set(); render(); }
-function dropFC(c){
-  // valores disponibles según los demás filtros y la búsqueda global
+function limpiarFC(t,k){ delete FCF[t][k]; render(); }
+function ningunoFC(t,k){ FCF[t][k]=new Set(); render(); }
+function dropFC(t,c){
+  const cfg=fcCfg(t);
   const vals=new Map();
-  S.equipos.forEach(e=>{
-    if(!pasaBusqueda(e)||!pasaFiltrosCol(e,c.k)) return;
-    const v=valCol(e,c.k);
-    vals.set(v,(vals.get(v)||0)+1);
-  });
+  fcFilas(t,c.k).forEach(e=>{ const v=cfg.val(e,c.k); vals.set(v,(vals.get(v)||0)+1); });
   let lista=[...vals.entries()].sort((a,b)=>{
     const na=+a[0], nb=+b[0];
     if(!isNaN(na)&&!isNaN(nb)&&a[0]!==""&&b[0]!=="") return na-nb;
     return a[0]<b[0]?-1:1;
   });
   if(fcQ) lista=lista.filter(([v])=>v.toLowerCase().includes(fcQ.toLowerCase()));
-  const set=filtroCol[c.k];
+  const set=FCF[t][c.k];
   const muestra=lista.slice(0,250);
   _fcVals=muestra.map(([v])=>v);
   const fmtV=v=>c.k==="act"&&v?fmtF(v):(v===""?"(vacío)":v);
   return `<div class="fc-drop" onclick="event.stopPropagation()">
     <input type="text" id="fc-q" placeholder="Buscar valor…" value="${esc(fcQ)}" oninput="fcQ=this.value;render()">
     <div class="fc-acciones">
-      <button class="btn mini sec" onclick="limpiarFC('${c.k}')">Todos</button>
-      <button class="btn mini sec" onclick="ningunoFC('${c.k}')">Ninguno</button>
+      <button class="btn mini sec" onclick="limpiarFC('${t}','${c.k}')">Todos</button>
+      <button class="btn mini sec" onclick="ningunoFC('${t}','${c.k}')">Ninguno</button>
       <span class="nota derecha">${lista.length} valor(es)</span>
     </div>
     <div class="fc-lista">
       ${muestra.map(([v,n],i)=>`<label class="fc-item">
         <input type="checkbox" ${!set||set.has(v)?"checked":""}
-          onchange="event.stopPropagation();toggleValFC('${c.k}',${i})">
+          onchange="event.stopPropagation();toggleValFC('${t}',${i})">
         <span>${esc(fmtV(v))} <span class="nota">(${n})</span></span></label>`).join("")||'<p class="nota">Sin valores</p>'}
       ${lista.length>250?'<p class="nota">…afina la búsqueda para ver más</p>':""}
     </div>
   </div>`;
 }
+function thFC(t,c){
+  if(c.nf) return `<th style="width:${c.w}" class="${c.cls||""}">${c.n}</th>`;
+  const act=!!FCF[t][c.k];
+  return `<th style="width:${c.w}" class="${c.cls||""}">${c.n}
+    <button class="fc-btn ${act?"act":""}" title="Filtrar ${esc(c.n)}"
+      onclick="event.stopPropagation();toggleFC('${t}','${c.k}')">▾</button>
+    ${fcTabla===t&&fcAbierto===c.k?dropFC(t,c):""}</th>`;
+}
 function vInventario(){
-  const lista=S.equipos.filter(e=>pasaBusqueda(e)&&pasaFiltrosCol(e,null));
+  const lista=fcFilas("inv",null);
   const filas=lista.slice(0,600).map(e=>{
     const np=+valCol(e,"pend");
     const act=valCol(e,"act");
@@ -662,22 +711,17 @@ function vInventario(){
       <td>${np?`<span class="tag NO">${np}</span>`:'<span class="nota">0</span>'}</td>
       <td class="oc-lg">${act?fmtF(act):'<span class="nota">—</span>'}</td>
     </tr>`;}).join("");
-  const hayFiltros=Object.keys(filtroCol).length;
+  const hayFiltros=Object.keys(FCF.inv).length;
   return `
   <h2>Inventario maestro (${lista.length} equipos)</h2>
   <div class="fila-filtros">
     <input type="text" id="inv-q" placeholder="Buscar en todo el inventario…" value="${esc(filtros.q)}"
       oninput="filtros.q=this.value;render()" style="min-width:260px;flex:1">
-    ${hayFiltros?`<button class="btn mini sec" onclick="filtroCol={};fcAbierto=null;render()">✕ Quitar filtros de columna (${hayFiltros})</button>`:""}
+    ${hayFiltros?`<button class="btn mini sec" onclick="FCF.inv={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros de columna (${hayFiltros})</button>`:""}
     <span class="nota">▾ en cada columna filtra como en Excel (uno o más valores)</span>
   </div>
   <table class="fija">
-    <tr>${COLS_INV.map(c=>{
-      const act=filtroCol[c.k]&&filtroCol[c.k].size;
-      return `<th style="width:${c.w}" class="${c.cls||""}">${c.n}
-        <button class="fc-btn ${act?"act":""}" title="Filtrar ${esc(c.n)}"
-          onclick="event.stopPropagation();toggleFC('${c.k}')">▾</button>
-        ${fcAbierto===c.k?dropFC(c):""}</th>`;}).join("")}</tr>
+    <tr>${COLS_INV.map(c=>thFC("inv",c)).join("")}</tr>
     ${filas||`<tr><td colspan="${COLS_INV.length}">Sin resultados</td></tr>`}
   </table>
   ${lista.length>600?'<p class="nota">Mostrando los primeros 600; afina la búsqueda o los filtros.</p>':""}`;
@@ -808,33 +852,28 @@ function delFicha(id,i){
 function vPlan(){
   const m=mesPlan;
   const fams=[...new Set(S.equipos.map(e=>e.fam).filter(Boolean))].sort();
-  const lista=S.equipos.filter(e=>{
-    if(e.baja) return false;
-    if(!["X","R","RA"].includes(e.plan[m])) return false;
-    if(filtrosPlan.fam && e.fam!==filtrosPlan.fam) return false;
-    const r=codResultado(e.resultado[m][1]);
-    if(filtrosPlan.solo==="pend" && r) return false;
-    if(filtrosPlan.solo==="causal" && !/^C/.test(r)) return false;
-    if(filtrosPlan.q){
-      const q=filtrosPlan.q.toLowerCase();
-      if(!`${e.inv} ${e.equipo} ${e.marca} ${e.modelo} ${e.serie} ${e.servicio}`.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+  const lista=fcFilas("plan",null);
   const sm=statsMes(m);
   const filas=lista.map(e=>{
     const r=codResultado(e.resultado[m][1]);
     const rep=S.reprog[e.id+"-"+m];
     const docKey=e.id+"-"+m, doc=S.docs[docKey]||{};
     const esExt=FAM_EXTERNA.includes(e.fam);
+    const d=S.mpEjec[docKey];
+    const resp=valColPlan(e,"resp");
     return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))" title="Clic para abrir la ficha del equipo">
-      <td>${esc(e.inv)||esc(e.serie)}<br><span class="nota">Carp. ${esc(e.carpeta)}</span></td>
-      <td><b>${esc(e.equipo)}</b> ${esc(e.marca)} ${esc(e.modelo)}<br>
-        <span class="nota">${esc(e.servicio)} · ${esc(e.unidad)} ${esc(e.ubicacion)}</span></td>
-      <td>${tagPlan(e.plan[m])} ${esc(e.frec)}</td>
-      <td>${esc((S.asig[m]||{})[e.id] || e.respMP || "—")}</td>
-      <td>
-        <select onchange="setResultado(${e.id},${m},this.value)">
+      <td class="oc-sm">${e.id}</td>
+      <td class="oc-lg">${esc(e.carpeta)}</td>
+      <td title="${esc(e.inv)}">${esc(e.inv)||esc(e.serie)}</td>
+      <td title="${esc(e.equipo)}">${esc(e.equipo)}</td>
+      <td class="oc-md" title="${esc(e.marca)}">${esc(e.marca)}</td>
+      <td class="oc-md" title="${esc(e.modelo)}">${esc(e.modelo)}</td>
+      <td class="oc-lg" title="${esc(e.serie)}">${esc(e.serie)}</td>
+      <td title="${esc(e.servicio)} · ${esc(e.unidad)} ${esc(e.ubicacion)} · Frec. ${esc(e.frec)}">${esc(e.servicio)}</td>
+      <td>${tagPlan(e.plan[m])}</td>
+      <td class="oc-sm" title="${esc(resp)}">${esc(resp)}</td>
+      <td style="overflow:visible;white-space:normal">
+        <select style="width:100%;max-width:170px" onchange="setResultado(${e.id},${m},this.value)">
           <option value="">— pendiente —</option>
           <option ${r==="SI"?"selected":""} value="SI">SI (ejecutada)</option>
           <option ${r==="SI-RA"?"selected":""} value="SI-RA">SI-RA (de año anterior)</option>
@@ -845,19 +884,19 @@ function vPlan(){
           <option ${r==="BAJA"?"selected":""} value="BAJA">BAJA</option>
         </select>
         ${rep?`<div class="nota">Reprog. a ${MESES_L[rep.destino]}</div>`:""}
-        ${(function(){const d=S.mpEjec[e.id+"-"+m];if(!d||!esEjecutada(r))return "";
-          return `<div class="nota">${fmtF(d.f)} · ${esc(d.e||"s/ejecutor")} · ${esc(d.st||"")}
-          <button class="x-btn" style="color:var(--azul)" title="Editar ejecución" onclick="abrirEjecucion(${e.id},${m},'${r}')">✎</button></div>`;})()}
+        ${d&&esEjecutada(r)?`<div class="nota">${fmtF(d.f)} · ${esc(d.e||"s/ejecutor")} · ${esc(d.st||"")}
+          <button class="x-btn" style="color:var(--azul)" title="Editar ejecución" onclick="abrirEjecucion(${e.id},${m},'${r}')">✎</button></div>`:""}
       </td>
-      <td>${esExt&&esEjecutada(r)?`
+      <td class="oc-md" style="overflow:visible;white-space:normal">${esExt&&esEjecutada(r)?`
         <label class="subtarea"><input type="checkbox" ${doc.int?"checked":""} onchange="setDoc('${docKey}','int',this.checked)">Rep. interno</label>
         <label class="subtarea"><input type="checkbox" ${doc.emp?"checked":""} onchange="setDoc('${docKey}','emp',this.checked)">Inf. empresa</label>`
         :(esEjecutada(r)?`<label class="subtarea"><input type="checkbox" ${doc.int?"checked":""} onchange="setDoc('${docKey}','int',this.checked)">Protocolo recibido</label>`:"")}</td>
     </tr>`;}).join("");
+  const hayFiltros=Object.keys(FCF.plan).length;
   return `
   <h2>Plan de mantenciones preventivas — control de ejecución</h2>
   <div class="fila-filtros">
-    <select onchange="mesPlan=+this.value;render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+    <select onchange="mesPlan=+this.value;FCF.plan={};render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
     <select onchange="filtrosPlan.fam=this.value;render()"><option value="">Todas las familias</option>
       ${fams.map(f=>`<option ${filtrosPlan.fam===f?"selected":""}>${esc(f)}</option>`).join("")}</select>
     <select onchange="filtrosPlan.solo=this.value;render()">
@@ -866,16 +905,18 @@ function vPlan(){
       <option value="causal" ${filtrosPlan.solo==="causal"?"selected":""}>Solo con causal</option>
     </select>
     <input type="text" id="plan-q" placeholder="Buscar…" value="${esc(filtrosPlan.q)}" oninput="filtrosPlan.q=this.value;render()">
-    <span class="derecha nota">Programadas: <b>${sm.prog}</b> · Realizadas: <b>${sm.si}</b> · Causal: <b>${sm.causal}</b> · Pendientes: <b>${sm.pend}</b></span>
+    ${hayFiltros?`<button class="btn mini sec" onclick="FCF.plan={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros de columna (${hayFiltros})</button>`:""}
+    <span class="derecha nota">Mostradas: <b>${lista.length}</b> · Programadas: <b>${sm.prog}</b> · Realizadas: <b>${sm.si}</b> · Causal: <b>${sm.causal}</b> · Pendientes: <b>${sm.pend}</b></span>
   </div>
   <p class="nota">Códigos: <span class="tag X">X</span> programada · <span class="tag R">R</span> reprogramada ·
   <span class="tag RA">RA</span> reprog. año anterior · <span class="tag SI">SI</span> ejecutada ·
-  <span class="tag C">C1–C8</span> causal de reprogramación · <span class="tag FS">FS</span> retiro de circulación.
-  Causales C1, C5–C8: plazo máx. 30 días corridos tras el fin del mes programado.</p>
-  <div class="tablewrap"><table>
-    <tr><th>Inventario</th><th>Equipo / ubicación</th><th>Plan</th><th>Responsable</th><th>Resultado del mes</th><th>Documentación</th></tr>
-    ${filas||"<tr><td colspan=6>Sin mantenciones para este filtro.</td></tr>"}
-  </table></div>`;
+  <span class="tag C">C1–C8</span> causal · <span class="tag FS">FS</span> fuera de servicio.
+  Causales C1, C5–C8: plazo máx. 30 días corridos tras el fin del mes programado.
+  ▾ en cada columna filtra como en Excel.</p>
+  <table class="fija">
+    <tr>${COLS_PLAN.map(c=>thFC("plan",c)).join("")}</tr>
+    ${filas||`<tr><td colspan="${COLS_PLAN.length}">Sin mantenciones para este filtro.</td></tr>`}
+  </table>`;
 }
 function setResultado(id,m,v){
   const e=eq(id);
