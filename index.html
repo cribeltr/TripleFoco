@@ -95,6 +95,12 @@ button.btn.mini{padding:3px 8px;font-size:12px}
   .solo-print{display:block !important}
 }
 .solo-print{display:none}
+.ac-cont{position:relative;flex:1;min-width:260px}
+.ac-lista{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--borde);
+  border-radius:0 0 6px 6px;max-height:260px;overflow:auto;z-index:80;display:none;box-shadow:0 4px 12px rgba(0,0,0,.15)}
+.ac-item{padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f2f5}
+.ac-item:hover{background:var(--azul-claro)}
+.ac-cont input{width:100%}
 </style>
 </head>
 <body>
@@ -137,9 +143,9 @@ const CAUSALES = {
 };
 const CAUSALES_30D = ["C1","C5","C6","C7","C8"];   // plazo 30 días corridos
 const FAM_EXTERNA = ["Ventiladores","Máquina de Diálisis","M Anestesia"]; // requieren informe de empresa
-const RESPONSABLES_BASE = ["Ricardo Matus Aroca","Ignacio Berner Bergara","Matías Soazo Garrido",
-  "Daniel Díaz Neira","Tito Millapán Riquelme","Carlos Bahamondes Seguel","Cristián Beltrán Oviedo",
-  "Cristina Rozas Urrutia","Macarena Toledo","Marco Ulloa","Personal externo"];
+const RESPONSABLES_BASE = ["Carlos Bahamondes Seguel","Cristián Beltrán Oviedo","Cristina Rozas Urrutia",
+  "Daniel Díaz Neira","Ignacio Berner Bergara","Macarena Toledo","Marco Ulloa","Matías Soazo Garrido",
+  "Ricardo Matus Aroca","Tito Millapán Riquelme","Personal Externo"];
 const HITOS = {
   asignacion:{nombre:"Asignación de la falla", campos:[["folio","Folio solicitud SIGEM"],["ingeniero","Ingeniero asignado"],["descripcion","Descripción de la falla"]], estado:"En reparación"},
   compra:{nombre:"Compra de repuestos", campos:[["tipoCompra","Tipo (compra ágil / trato directo)"],["informe","N° informe técnico"],["ingeniero","Ingeniero responsable"]], estado:"Espera de repuestos"},
@@ -165,7 +171,7 @@ function seed(){
     e.baja = false;
   });
   return {
-    version:1, equipos:eqs, fichas:{}, correctivos:[], pendientes:[],
+    version:2, equipos:eqs, fichas:{}, correctivos:[], pendientes:[],
     asig:{}, docs:{}, reprog:{}, responsables:RESPONSABLES_BASE.slice(),
     config:{alertaST:30, alertaCorrectivo:20}, nextCorr:1, nextPend:1
   };
@@ -173,7 +179,11 @@ function seed(){
 function cargar(){
   try{
     const raw = localStorage.getItem(LS_KEY);
-    if(raw){ S = JSON.parse(raw); return; }
+    if(raw){
+      S = JSON.parse(raw);
+      if(S.version<2){ S.responsables = RESPONSABLES_BASE.slice(); S.version=2; guardar(); }
+      return;
+    }
   }catch(e){ console.warn(e); }
   S = seed();
   guardar();
@@ -228,6 +238,55 @@ function estadoCorr(c){
   if(c.cerrado) return "Cerrado";
   const h = ultimoHito(c);
   return h ? HITOS[h.tipo].estado : "Abierto";
+}
+
+/* ====================== Autocompletado de equipos ====================== */
+const AC_SEL = {};   // id del input -> id de equipo elegido
+function acHTML(id, ph){
+  return `<div class="ac-cont">
+    <input type="text" id="${id}" placeholder="${esc(ph)}" autocomplete="off"
+      oninput="acBuscar('${id}')" onfocus="acBuscar('${id}')">
+    <div id="${id}-lista" class="ac-lista"></div>
+  </div>`;
+}
+function acBuscar(id){
+  AC_SEL[id]=null; acInfo(id);
+  const q=$("#"+id).value.trim().toLowerCase();
+  const cont=$("#"+id+"-lista");
+  if(q.length<2){ cont.style.display="none"; cont.innerHTML=""; return; }
+  const res=[];
+  for(const e of S.equipos){
+    if(e.baja) continue;
+    const blob=`${e.inv} ${e.serie} ${e.carpeta} ${e.equipo} ${e.marca} ${e.modelo} ${e.servicio} ${e.unidad}`.toLowerCase();
+    if(blob.includes(q)){ res.push(e); if(res.length>=12) break; }
+  }
+  cont.innerHTML = res.map(e=>`<div class="ac-item" onclick="acElegir('${id}',${e.id})">
+      <b>${esc(e.inv||e.serie||("Carp. "+e.carpeta))}</b> · ${esc(e.equipo)} ${esc(e.marca)} ${esc(e.modelo)}
+      <span class="nota">· serie ${esc(e.serie)||"—"} · ${esc(e.servicio)}</span></div>`).join("")
+    || `<div class="ac-item nota">Sin coincidencias para "${esc(q)}"…</div>`;
+  cont.style.display="block";
+}
+function acElegir(id,eqId){
+  AC_SEL[id]=eqId;
+  const e=eq(eqId);
+  $("#"+id).value=`${e.inv||e.serie} — ${e.equipo} ${e.marca} ${e.modelo}`.trim();
+  $("#"+id+"-lista").style.display="none";
+  acInfo(id);
+}
+function acInfo(id){
+  const el=$("#"+id+"-sel"); if(!el) return;
+  const e=AC_SEL[id]?eq(AC_SEL[id]):null;
+  el.innerHTML = e
+    ? `✔ ${esc(nombreEq(e))} · Inv. ${esc(e.inv)||"s/n"} · Serie ${esc(e.serie)||"—"} · ${esc(e.servicio)} ${tagEstado(e)}`
+    : "Escribe y elige el equipo de la lista de coincidencias.";
+}
+document.addEventListener("click",ev=>{
+  if(!ev.target.closest(".ac-cont"))
+    document.querySelectorAll(".ac-lista").forEach(l=>l.style.display="none");
+});
+function selEjecutores(id, sel, conVacio){
+  return `<select id="${id}">${conVacio?'<option value="">— elegir —</option>':""}
+    ${S.responsables.map(r=>`<option ${r===sel?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
 }
 
 /* ====================== Motor de alertas ====================== */
@@ -722,27 +781,38 @@ function vCorrectivos(){
   </table></div>`;
 }
 function nuevoCorrectivoDesde(eqId){
-  let id=eqId;
-  if(id==null){
-    const q=prompt("N° de inventario, serie o carpeta del equipo en falla:");
-    if(!q) return;
-    const ql=q.trim().toLowerCase();
-    const cand=S.equipos.filter(e=>[e.inv,e.serie,e.carpeta].some(v=>v&&String(v).toLowerCase()===ql))
-      .concat(S.equipos.filter(e=>[e.inv,e.serie].some(v=>v&&String(v).toLowerCase().includes(ql))));
-    if(!cand.length) return alert("No se encontró el equipo. Búscalo en Inventario y usa '+ Nuevo correctivo'.");
-    id=cand[0].id;
-    if(!confirm(`¿Equipo encontrado: ${nombreEq(cand[0])} · Inv. ${cand[0].inv} · ${cand[0].servicio}?`)) return;
-  }
-  const folio=prompt("Folio de la solicitud de trabajo (SIGEM):")||"";
-  const ing=prompt("Ingeniero asignado:")||"";
-  const desc=prompt("Descripción de la falla:")||"";
-  const c={id:S.nextCorr++, eqId:id, fecha:hoyISO(), folio, ingeniero:ing, descripcion:desc,
-    hitos:[{tipo:"asignacion",fecha:hoyISO(),folio,ingeniero:ing,descripcion:desc}], seguimiento:[], cerrado:false};
+  AC_SEL["nc-eq"]=null;
+  $("#modal").innerHTML=`
+  <button class="cerrar" onclick="cerrarModal()">×</button>
+  <h2>Registrar falla — nuevo correctivo</h2>
+  <p class="nota"><b>Equipo:</b> escribe el N° de inventario, serie, modelo o servicio; las coincidencias aparecen mientras escribes.</p>
+  ${acHTML("nc-eq","Ej: 2-115361 · ASJL-0008 · ventilador UPC…")}
+  <p class="nota" id="nc-eq-sel">Escribe y elige el equipo de la lista de coincidencias.</p>
+  <div class="flex">
+    <label>Fecha de la falla<br><input type="date" id="nc-fecha" value="${hoyISO()}"></label>
+    <label>Folio solicitud SIGEM<br><input type="text" id="nc-folio" placeholder="Ej: 2026-121109-19-7177"></label>
+    <label>Ingeniero asignado<br>${selEjecutores("nc-ing","",true)}</label>
+  </div>
+  <label>Descripción de la falla</label>
+  <textarea id="nc-desc" rows="3" placeholder="Ej: equipo no cicla, pantalla sin imagen…"></textarea>
+  <div style="margin-top:10px"><button class="btn" onclick="crearCorrectivo()">Crear caso</button></div>`;
+  if(eqId) acElegir("nc-eq",eqId);
+  $("#modal-fondo").classList.add("abierto");
+}
+function crearCorrectivo(){
+  const id=AC_SEL["nc-eq"];
+  if(!id) return alert("Primero selecciona el equipo de la lista de coincidencias.");
+  const fecha=$("#nc-fecha").value||hoyISO();
+  const folio=$("#nc-folio").value.trim();
+  const ing=$("#nc-ing").value;
+  const desc=$("#nc-desc").value.trim();
+  const c={id:S.nextCorr++, eqId:id, fecha, folio, ingeniero:ing, descripcion:desc,
+    hitos:[{tipo:"asignacion",fecha,folio,ingeniero:ing,descripcion:desc}], seguimiento:[], cerrado:false};
   S.correctivos.push(c);
   eq(id).estado="No operativo";
-  agregarFicha(id,hoyISO(),`Equipo en falla, folio SOL: ${folio||"s/f"}. Técnico asignado: ${ing||"—"}. ${desc}`);
+  agregarFicha(id,fecha,`Equipo en falla, folio SOL: ${folio||"s/f"}. Técnico asignado: ${ing||"—"}. ${desc}`);
   guardar();
-  cerrarModal(); abrirCorrectivo(c.id);
+  abrirCorrectivo(c.id);
 }
 function abrirCorrectivo(cid){
   modalCorrId=cid;
@@ -799,13 +869,17 @@ function pintarCamposHito(){
   const t=$("#hito-tipo"); if(!t) return;
   const def=HITOS[t.value];
   $("#hito-campos").innerHTML=def.campos.map(([k,lbl])=>
-    `<input type="text" data-k="${k}" placeholder="${esc(lbl)}" style="width:100%;margin-bottom:5px">`).join("");
+    k==="ingeniero"
+      ? `<select data-k="${k}" style="width:100%;margin-bottom:5px">
+           <option value="">— ${esc(lbl)} —</option>
+           ${S.responsables.map(r=>`<option>${esc(r)}</option>`).join("")}</select>`
+      : `<input type="text" data-k="${k}" placeholder="${esc(lbl)}" style="width:100%;margin-bottom:5px">`).join("");
 }
 function addHito(cid){
   const c=S.correctivos.find(x=>x.id===cid);
   const tipo=$("#hito-tipo").value, fecha=$("#hito-fecha").value||hoyISO();
   const h={tipo,fecha};
-  document.querySelectorAll("#hito-campos input").forEach(i=>{ if(i.value.trim()) h[i.dataset.k]=i.value.trim(); });
+  document.querySelectorAll("#hito-campos input, #hito-campos select").forEach(i=>{ if(i.value.trim()) h[i.dataset.k]=i.value.trim(); });
   c.hitos.push(h);
   const e=eq(c.eqId), def=HITOS[tipo];
   if(tipo==="envio") e.estado="En servicio técnico";
@@ -873,9 +947,10 @@ function vPendientes(){
     <div class="flex">
       <input type="text" id="np-titulo" placeholder="Nuevo pendiente… (ej: pedir informe Dräger ventilador 2-112256)" style="flex:2;min-width:240px">
       <input type="date" id="np-limite">
-      <input type="text" id="np-inv" placeholder="Inventario (opcional)" style="width:150px">
+      ${acHTML("np-eq","Equipo: inventario o serie (opcional)")}
       <button class="btn" onclick="addPend()">Agregar</button>
     </div>
+    <p class="nota" id="np-eq-sel"></p>
   </div>
   <h3>Abiertos (${abiertos.length})</h3>
   ${abiertos.map(tarjeta).join("")||'<p class="nota">Nada pendiente.</p>'}
@@ -885,14 +960,12 @@ function vPendientes(){
 function addPend(){
   const t=$("#np-titulo").value.trim();
   if(!t) return alert("Escribe el pendiente.");
-  let eqId=null;
-  const inv=$("#np-inv").value.trim().toLowerCase();
-  if(inv){
-    const e=S.equipos.find(x=>[x.inv,x.serie,x.carpeta].some(v=>v&&String(v).toLowerCase()===inv));
-    if(e) eqId=e.id; else if(!confirm("No se encontró ese inventario, ¿crear el pendiente sin equipo?")) return;
-  }
+  let eqId=AC_SEL["np-eq"]||null;
+  if(!eqId && $("#np-eq").value.trim() &&
+     !confirm("No elegiste un equipo de la lista de coincidencias. ¿Crear el pendiente sin equipo asociado?")) return;
   S.pendientes.push({id:S.nextPend++, titulo:t, eqId, limite:$("#np-limite").value||null,
     notas:"", sub:[], updates:[], done:false, creado:hoyISO()});
+  AC_SEL["np-eq"]=null;
   guardar(); render();
 }
 function nuevoPendienteDesde(eqId){
@@ -930,7 +1003,8 @@ function vDatos(){
     </div>
   </div>
   <div class="panel">
-    <h3>Responsables oficiales (asignación)</h3>
+    <h3>Ejecutores (lista desplegable de responsables)</h3>
+    <p class="nota">Esta lista alimenta los menús desplegables de asignación mensual, correctivos e hitos. Un nombre por línea.</p>
     <textarea rows="6" id="resp-lista">${esc(S.responsables.join("\n"))}</textarea>
     <button class="btn mini" style="margin-top:6px" onclick="guardarResponsables()">Guardar lista</button>
   </div>
