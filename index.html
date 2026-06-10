@@ -1129,7 +1129,11 @@ function vAsignacion(){
   <h2>Asignación mensual de mantenciones</h2>
   <div class="fila-filtros no-print">
     <select onchange="mesAsig=+this.value;render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
-    <button class="btn" onclick="exportarAsigCSV(${m})">⬇ Exportar Excel (CSV)</button>
+    <button class="btn" onclick="exportarAsigXLSX(${m})">⬇ Exportar Excel (.xlsx con desplegable)</button>
+    <button class="btn sec" onclick="exportarAsigCSV(${m})">⬇ CSV</button>
+    <label class="btn sec" style="display:inline-block">⬆ Subir asignaciones
+      <input type="file" accept=".xlsx,.xlsm" style="display:none" onchange="subirAsignaciones(this)"></label>
+    <span id="sub-estado" class="nota"></span>
     <button class="btn sec" onclick="window.print()">🖨 Imprimir planilla</button>
     <button class="btn sec" onclick="autoAsignar(${m})">Sugerir según responsable MP</button>
     <span class="derecha nota">${lista.length} equipos con MP en ${MESES_L[m]}</span>
@@ -1156,6 +1160,88 @@ function autoAsignar(m){
     }
   });
   guardar(); render();
+}
+/* ---- generador de .xlsx con lista desplegable (sin librerías) ---- */
+const CRC_T=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRC_T[(c^u8[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function zipCrear(files){
+  const enc=new TextEncoder(), parts=[], cd=[]; let off=0;
+  files.forEach(f=>{
+    const nb=enc.encode(f.n), d=f.d, crc=crc32(d);
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint32(14,crc,true);
+    lh.setUint32(18,d.length,true);lh.setUint32(22,d.length,true);lh.setUint16(26,nb.length,true);
+    parts.push(new Uint8Array(lh.buffer),nb,d);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);
+    ch.setUint32(16,crc,true);ch.setUint32(20,d.length,true);ch.setUint32(24,d.length,true);
+    ch.setUint16(28,nb.length,true);ch.setUint32(42,off,true);
+    cd.push(new Uint8Array(ch.buffer),nb);
+    off+=30+nb.length+d.length;
+  });
+  let cdLen=0; cd.forEach(x=>cdLen+=x.length);
+  const eo=new DataView(new ArrayBuffer(22));
+  eo.setUint32(0,0x06054b50,true);eo.setUint16(8,files.length,true);eo.setUint16(10,files.length,true);
+  eo.setUint32(12,cdLen,true);eo.setUint32(16,off,true);
+  return new Blob([...parts,...cd,new Uint8Array(eo.buffer)],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+}
+function xmlEsc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function celdaRef(c,r){let s="";c++;while(c>0){s=String.fromCharCode(64+((c-1)%26+1))+s;c=Math.floor((c-1)/26);}return s+r;}
+function xlsxCrear(filas,ejecutores,colValida){
+  const enc=new TextEncoder();
+  const fila=(f,ri)=>`<row r="${ri}">${f.map((v,ci)=>`<c r="${celdaRef(ci,ri)}" t="inlineStr"><is><t>${xmlEsc(v)}</t></is></c>`).join("")}</row>`;
+  const colL=celdaRef(colValida,1).replace(/\d+$/,"");
+  const dv=`<dataValidations count="1"><dataValidation type="list" allowBlank="1" sqref="${colL}2:${colL}${filas.length}"><formula1>Ejecutores!$A$1:$A$${ejecutores.length}</formula1></dataValidation></dataValidations>`;
+  const ns='xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const s1=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet ${ns}><sheetData>${filas.map((f,i)=>fila(f,i+1)).join("")}</sheetData>${dv}</worksheet>`;
+  const s2=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet ${ns}><sheetData>${ejecutores.map((e2,i)=>fila([e2],i+1)).join("")}</sheetData></worksheet>`;
+  const wb=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook ${ns} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Asignación" sheetId="1" r:id="rId1"/><sheet name="Ejecutores" sheetId="2" r:id="rId2"/></sheets></workbook>`;
+  const RT="http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+  const rels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${RT}worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${RT}worksheet" Target="worksheets/sheet2.xml"/></Relationships>`;
+  const root=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${RT}officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`;
+  return zipCrear([
+    {n:"[Content_Types].xml",d:enc.encode(ct)},{n:"_rels/.rels",d:enc.encode(root)},
+    {n:"xl/workbook.xml",d:enc.encode(wb)},{n:"xl/_rels/workbook.xml.rels",d:enc.encode(rels)},
+    {n:"xl/worksheets/sheet1.xml",d:enc.encode(s1)},{n:"xl/worksheets/sheet2.xml",d:enc.encode(s2)}
+  ]);
+}
+function filasAsig(m){
+  const asigMes=S.asig[m]||{};
+  const filas=[["ID","N° Carpeta","N° Inventario","Equipo","Servicio","Unidad","Ubicación","Marca","Modelo","Serie","Año","Frecuencia MP","Programado","Responsable"]];
+  S.equipos.forEach(e=>{
+    if(e.baja||!["X","R","RA"].includes(e.plan[m])) return;
+    filas.push([e.id,e.carpeta,e.inv,e.equipo,e.servicio,e.unidad,e.ubicacion,e.marca,e.modelo,e.serie,e.anio,e.frec,e.plan[m],asigMes[e.id]||e.respMP||""]);
+  });
+  return filas;
+}
+function exportarAsigXLSX(m){
+  const blob=xlsxCrear(filasAsig(m),S.responsables,13);
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=`Asignacion_${MESES_L[m]}_${ANIO}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
+}
+async function subirAsignaciones(inp){
+  const f=inp.files[0]; if(!f) return; inp.value="";
+  const aviso=t=>{const el=$("#sub-estado"); if(el)el.innerHTML=t; else alert(t.replace(/<[^>]+>/g,""));};
+  try{
+    const libro=await leerLibro(await f.arrayBuffer());
+    const hoja=libro.hojas["Asignación"]||Object.values(libro.hojas)[0];
+    const filas=await leerHoja(libro.entradas,hoja,libro.ss);
+    const nums=Object.keys(filas).map(Number).sort((a,b)=>a-b);
+    const hdr=filas[nums[0]]||{};
+    let colId=null,colResp=null;
+    Object.entries(hdr).forEach(([c,v])=>{const t=String(v).trim().toLowerCase();
+      if(t==="id")colId=+c; if(t.startsWith("responsable"))colResp=+c;});
+    if(colId==null||colResp==null) throw new Error('El archivo debe tener columnas "ID" y "Responsable" (usa el exportado desde aquí).');
+    if(!S.asig[mesAsig])S.asig[mesAsig]={};
+    let n=0;
+    nums.slice(1).forEach(r=>{
+      const id=parseInt((filas[r]||{})[colId],10), resp=String((filas[r]||{})[colResp]||"").trim();
+      if(!isNaN(id)&&resp&&eq(id)){ S.asig[mesAsig][id]=resp; n++; }
+    });
+    guardar(); render();
+    aviso(`✔ <b>${n}</b> asignaciones cargadas para ${MESES_L[mesAsig]}.`);
+  }catch(e2){ aviso(`<span style="color:var(--rojo)">✘ ${esc(e2.message)}</span>`); }
 }
 function exportarAsigCSV(m){
   const asigMes=S.asig[m]||{};
