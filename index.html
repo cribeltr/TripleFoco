@@ -183,6 +183,13 @@ function cargar(){
   S = seed();
   guardar();
 }
+function normalizar(){
+  // hitos en orden cronológico aunque se hayan registrado en desorden
+  (S.correctivos||[]).forEach(c=>{
+    ordenarHitos(c);
+    c.cerrado = c.hitos.some(h=>h.tipo==="entrega");
+  });
+}
 function guardar(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }
   catch(e){ alert("No se pudo guardar en el navegador: "+e.message); }
@@ -233,6 +240,7 @@ function agregarFicha(eqId, fecha, texto, ejecutor){
 function corrAbierto(eqId){
   return S.correctivos.find(c=>c.eqId===eqId && !c.cerrado);
 }
+function ordenarHitos(c){ c.hitos.sort((a,b)=>a.fecha<b.fecha?-1:(a.fecha>b.fecha?1:0)); }
 function ultimoHito(c){ return c.hitos[c.hitos.length-1]; }
 function estadoCorr(c){
   if(c.cerrado) return "Cerrado";
@@ -538,6 +546,7 @@ function vInventario(){
 let modalEqId=null;
 function abrirEquipo(id){
   modalEqId=id;
+  fichaEdit=null;
   pintarModalEquipo();
   $("#modal-fondo").classList.add("abierto");
 }
@@ -592,10 +601,11 @@ function pintarModalEquipo(){
       </div>
       <div class="flex no-print" style="margin-top:5px">
         ${selEjecutores("ft-ejecutor","","— ejecutor (opcional) —")}
-        <button class="btn mini" onclick="addFicha(${e.id})">Agregar</button>
+        <button class="btn mini" id="ft-btn" onclick="addFicha(${e.id})">Agregar</button>
       </div>
       <div class="hist">${ficha.length?ficha.map(ev=>`<div class="ev"><span class="f">${fmtF(ev.f)}</span> — ${esc(ev.t)}
         ${ev.e?`<span class="tag gris">${esc(ev.e)}</span>`:""}
+        <button class="x-btn no-print" style="color:var(--azul)" title="Editar evento" onclick="editFicha(${e.id},${ev.i})">✎</button>
         <button class="x-btn no-print" title="Eliminar evento" onclick="delFicha(${e.id},${ev.i})">×</button></div>`).join(""):'<p class="nota">Sin eventos registrados.</p>'}</div>
     </div>
     <div>
@@ -617,12 +627,24 @@ function toggleBaja(id){
   agregarFicha(id, hoyISO(), e.baja?"Equipo dado de baja":"Equipo reactivado");
   guardar(); pintarModalEquipo();
 }
+let fichaEdit=null;   // índice del evento en edición
 function addFicha(id){
   const f=$("#ft-fecha").value, t=$("#ft-texto").value.trim();
   if(!f||!t) return alert("Completa fecha y descripción.");
+  if(fichaEdit!=null){ S.fichas[id].splice(fichaEdit,1); fichaEdit=null; }
   agregarFicha(id,f,t,$("#ft-ejecutor").value); guardar(); pintarModalEquipo();
 }
+function editFicha(id,i){
+  const ev=S.fichas[id][i];
+  fichaEdit=i;
+  $("#ft-fecha").value=ev.f;
+  $("#ft-texto").value=ev.t;
+  $("#ft-ejecutor").value=ev.e||"";
+  $("#ft-btn").textContent="Guardar cambios";
+  $("#ft-texto").focus();
+}
 function delFicha(id,i){
+  fichaEdit=null;
   const ev=(S.fichas[id]||[])[i];
   if(!ev) return;
   if(!confirm(`¿Eliminar este evento de la ficha técnica?\n\n${fmtF(ev.f)} — ${ev.t}`)) return;
@@ -942,13 +964,28 @@ function addHito(cid){
   const h={tipo,fecha};
   document.querySelectorAll("#hito-campos input, #hito-campos select").forEach(i=>{ if(i.value.trim()) h[i.dataset.k]=i.value.trim(); });
   c.hitos.push(h);
+  ordenarHitos(c);
   const e=eq(c.eqId), def=HITOS[tipo];
   if(tipo==="envio") e.estado="En servicio técnico";
   else if(tipo==="retorno") e.estado="No operativo";
-  else if(tipo==="entrega"){ c.cerrado=true; e.estado="Operativo"; }
   const det=def.campos.map(([k,lbl])=>h[k]?`${lbl}: ${h[k]}`:"").filter(Boolean).join(", ");
   agregarFicha(c.eqId,fecha,`${def.nombre}${det?" — "+det:""} (caso #${c.id})`,h.ingeniero||"");
+  if(tipo==="entrega") alCerrarCaso(c);
   guardar(); pintarModalCorr();
+}
+function alCerrarCaso(c){
+  const e=eq(c.eqId);
+  c.cerrado=true;
+  e.estado="Operativo";
+  // MP reprogramada por C2/C3/C4 sin ejecutar: debe gestionarse al retorno
+  const pendMP=e.resultado.some((r,m)=>/^C[234]$/.test(codResultado(r[1])) && !e.resultado.some((r2,m2)=>m2>m&&esEjecutada(codResultado(r2[1]))));
+  const yaExiste=S.pendientes.some(p=>p.eqId===e.id && !p.done && p.titulo.startsWith("Ejecutar MP pendiente"));
+  if(pendMP && !yaExiste){
+    S.pendientes.push({id:S.nextPend++, titulo:`Ejecutar MP pendiente al retorno — ${nombreEq(e)} (Inv. ${e.inv})`,
+      eqId:e.id, limite:hoyISO(), notas:"El equipo retornó de ST con una MP reprogramada por causal C2/C3/C4: debe ejecutarse de inmediato.",
+      sub:[], updates:[], done:false, creado:hoyISO()});
+    alert("Ojo: este equipo tiene una MP reprogramada por causal C2/C3/C4 sin ejecutar. Se creó un pendiente para gestionarla al retorno.");
+  }
 }
 function addSeg(cid){
   const c=S.correctivos.find(x=>x.id===cid);
@@ -981,18 +1018,10 @@ function delCorr(cid){
 }
 function cerrarCaso(cid){
   const c=S.correctivos.find(x=>x.id===cid);
-  c.cerrado=true;
   c.hitos.push({tipo:"entrega",fecha:hoyISO()});
-  const e=eq(c.eqId); e.estado="Operativo";
+  ordenarHitos(c);
   agregarFicha(c.eqId,hoyISO(),`Equipo entregado al servicio clínico, caso #${c.id} cerrado. Equipo operativo.`);
-  // recordatorio MP pendiente si hay causal C2/C3 sin ejecutar
-  const pendMP=e.resultado.some((r,m)=>/^C[234]$/.test(codResultado(r[1])) && !e.resultado.some((r2,m2)=>m2>m&&esEjecutada(codResultado(r2[1]))));
-  if(pendMP){
-    S.pendientes.push({id:S.nextPend++, titulo:`Ejecutar MP pendiente al retorno — ${nombreEq(e)} (Inv. ${e.inv})`,
-      eqId:e.id, limite:hoyISO(), notas:"El equipo retornó de ST con una MP reprogramada por causal C2/C3/C4: debe ejecutarse de inmediato.",
-      sub:[], updates:[], done:false, creado:hoyISO()});
-    alert("Ojo: este equipo tiene una MP reprogramada por causal C2/C3/C4. Se creó un pendiente para ejecutarla de inmediato.");
-  }
+  alCerrarCaso(c);
   guardar(); pintarModalCorr();
 }
 
@@ -1396,6 +1425,7 @@ document.getElementById("nav").addEventListener("click",ev=>{
 });
 document.addEventListener("keydown",ev=>{ if(ev.key==="Escape") cerrarModal(); });
 cargar();
+normalizar();
 $("#hoy-txt").textContent=new Date().toLocaleDateString("es-CL",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
 render();
 </script>
