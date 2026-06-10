@@ -568,8 +568,16 @@ function pintarModalEquipo(){
       </select></label>
     <button class="btn mini sec" onclick="toggleBaja(${e.id})">${e.baja?"Reactivar equipo":"Dar de baja"}</button>
     <button class="btn mini sec" onclick="nuevoCorrectivoDesde(${e.id})">+ Nuevo correctivo</button>
-    <button class="btn mini sec" onclick="nuevoPendienteDesde(${e.id})">+ Nuevo pendiente</button>
+    <button class="btn mini sec" onclick="togglePendForm()">+ Nuevo pendiente</button>
     <button class="btn mini sec no-print" onclick="window.print()">Imprimir ficha</button>
+  </div>
+  <div id="pend-form" class="panel no-print" style="display:none;margin-top:8px">
+    <b>Nuevo pendiente para este equipo</b>
+    <div class="flex" style="margin-top:6px">
+      <input type="text" id="pf-titulo" placeholder="Describe el pendiente…" style="flex:1;min-width:220px">
+      <label class="nota">Fecha límite <input type="date" id="pf-limite"></label>
+      <button class="btn mini" onclick="crearPendienteEq(${e.id})">Agregar</button>
+    </div>
   </div>
   <h3>Plan ${ANIO} (programado / resultado)</h3>
   <div class="meses">${grilla}</div>
@@ -1046,11 +1054,16 @@ function addPend(){
   AC_SEL["np-eq"]=null;
   guardar(); render();
 }
-function nuevoPendienteDesde(eqId){
-  const t=prompt("Describe el pendiente:");
-  if(!t) return;
-  const lim=prompt("Fecha límite (AAAA-MM-DD, vacío = sin fecha):")||null;
-  S.pendientes.push({id:S.nextPend++, titulo:t, eqId, limite:lim, notas:"", sub:[], updates:[], done:false, creado:hoyISO()});
+function togglePendForm(){
+  const f=$("#pend-form");
+  f.style.display = f.style.display==="none" ? "block" : "none";
+  if(f.style.display==="block") $("#pf-titulo").focus();
+}
+function crearPendienteEq(eqId){
+  const t=$("#pf-titulo").value.trim();
+  if(!t) return alert("Describe el pendiente.");
+  S.pendientes.push({id:S.nextPend++, titulo:t, eqId, limite:$("#pf-limite").value||null,
+    notas:"", sub:[], updates:[], done:false, creado:hoyISO()});
   guardar(); pintarModalEquipo();
 }
 function togglePend(id){ const p=S.pendientes.find(x=>x.id===id); p.done=!p.done; guardar(); render(); }
