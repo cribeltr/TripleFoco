@@ -223,9 +223,11 @@ function tagEstado(e){
   const cls = s==="Operativo"?"op":(s==="En servicio técnico"?"st":"nop");
   return `<span class="tag ${cls}">${esc(s)}</span>`;
 }
-function agregarFicha(eqId, fecha, texto){
+function agregarFicha(eqId, fecha, texto, ejecutor){
   if(!S.fichas[eqId]) S.fichas[eqId]=[];
-  S.fichas[eqId].push({f:fecha, t:texto});
+  const ev={f:fecha, t:texto};
+  if(ejecutor) ev.e=ejecutor;
+  S.fichas[eqId].push(ev);
   S.fichas[eqId].sort((a,b)=>a.f<b.f?-1:1);
 }
 function corrAbierto(eqId){
@@ -283,7 +285,8 @@ document.addEventListener("click",ev=>{
     document.querySelectorAll(".ac-lista").forEach(l=>l.style.display="none");
 });
 function selEjecutores(id, sel, conVacio){
-  return `<select id="${id}">${conVacio?'<option value="">— elegir —</option>':""}
+  const vacio = conVacio ? `<option value="">${typeof conVacio==="string"?esc(conVacio):"— elegir —"}</option>` : "";
+  return `<select id="${id}">${vacio}
     ${S.responsables.map(r=>`<option ${r===sel?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
 }
 
@@ -540,7 +543,7 @@ function abrirEquipo(id){
 }
 function pintarModalEquipo(){
   const e = eq(modalEqId);
-  const ficha = (S.fichas[e.id]||[]).map((ev,i)=>({f:ev.f,t:ev.t,i})).reverse();
+  const ficha = (S.fichas[e.id]||[]).map((ev,i)=>({f:ev.f,t:ev.t,e:ev.e,i})).reverse();
   const corrs = S.correctivos.filter(c=>c.eqId===e.id);
   const pends = S.pendientes.filter(p=>p.eqId===e.id && !p.done);
   const grilla = MESES.map((mn,i)=>{
@@ -578,9 +581,13 @@ function pintarModalEquipo(){
       <div class="flex no-print">
         <input type="date" id="ft-fecha" value="${hoyISO()}">
         <input type="text" id="ft-texto" placeholder="Ej: mantención preventiva, equipo operativo" style="flex:1">
+      </div>
+      <div class="flex no-print" style="margin-top:5px">
+        ${selEjecutores("ft-ejecutor","","— ejecutor (opcional) —")}
         <button class="btn mini" onclick="addFicha(${e.id})">Agregar</button>
       </div>
       <div class="hist">${ficha.length?ficha.map(ev=>`<div class="ev"><span class="f">${fmtF(ev.f)}</span> — ${esc(ev.t)}
+        ${ev.e?`<span class="tag gris">${esc(ev.e)}</span>`:""}
         <button class="x-btn no-print" title="Eliminar evento" onclick="delFicha(${e.id},${ev.i})">×</button></div>`).join(""):'<p class="nota">Sin eventos registrados.</p>'}</div>
     </div>
     <div>
@@ -605,7 +612,7 @@ function toggleBaja(id){
 function addFicha(id){
   const f=$("#ft-fecha").value, t=$("#ft-texto").value.trim();
   if(!f||!t) return alert("Completa fecha y descripción.");
-  agregarFicha(id,f,t); guardar(); pintarModalEquipo();
+  agregarFicha(id,f,t,$("#ft-ejecutor").value); guardar(); pintarModalEquipo();
 }
 function delFicha(id,i){
   const ev=(S.fichas[id]||[])[i];
@@ -691,7 +698,7 @@ function setResultado(id,m,v){
   e.resultado[m][1]=v;
   if(!v){ delete S.reprog[id+"-"+m]; guardar(); render(); return; }
   if(v==="SI"||v==="SI-RA"){
-    agregarFicha(id,hoyISO(),`Mantención preventiva de ${MESES_L[m]} ejecutada${v==="SI-RA"?" (correspondiente al año anterior)":""}, equipo operativo`);
+    agregarFicha(id,hoyISO(),`Mantención preventiva de ${MESES_L[m]} ejecutada${v==="SI-RA"?" (correspondiente al año anterior)":""}, equipo operativo`,(S.asig[m]||{})[id]||e.respMP||"");
   }else if(/^C[1-8]$/.test(v)){
     let destino=null;
     if(m<11){
@@ -851,7 +858,7 @@ function crearCorrectivo(){
     hitos:[{tipo:"asignacion",fecha,folio,ingeniero:ing,descripcion:desc}], seguimiento:[], cerrado:false};
   S.correctivos.push(c);
   eq(id).estado="No operativo";
-  agregarFicha(id,fecha,`Equipo en falla, folio SOL: ${folio||"s/f"}. Técnico asignado: ${ing||"—"}. ${desc}`);
+  agregarFicha(id,fecha,`Equipo en falla, folio SOL: ${folio||"s/f"}. ${desc}`,ing);
   guardar();
   abrirCorrectivo(c.id);
 }
@@ -932,7 +939,7 @@ function addHito(cid){
   else if(tipo==="retorno") e.estado="No operativo";
   else if(tipo==="entrega"){ c.cerrado=true; e.estado="Operativo"; }
   const det=def.campos.map(([k,lbl])=>h[k]?`${lbl}: ${h[k]}`:"").filter(Boolean).join(", ");
-  agregarFicha(c.eqId,fecha,`${def.nombre}${det?" — "+det:""} (caso #${c.id})`);
+  agregarFicha(c.eqId,fecha,`${def.nombre}${det?" — "+det:""} (caso #${c.id})`,h.ingeniero||"");
   guardar(); pintarModalCorr();
 }
 function addSeg(cid){
@@ -1141,10 +1148,10 @@ function exportarInventarioCSV(){
   descargarCSV(filas,`Inventario_PMP_${ANIO}_${hoyISO()}.csv`);
 }
 function exportarFichasCSV(){
-  const filas=[["N° Inventario","Equipo","Servicio","Fecha","Evento"]];
+  const filas=[["N° Inventario","Equipo","Servicio","Fecha","Evento","Ejecutor"]];
   Object.entries(S.fichas).forEach(([id,evs])=>{
     const e=eq(+id); if(!e) return;
-    evs.forEach(ev=>filas.push([e.inv,e.equipo,e.servicio,ev.f,ev.t]));
+    evs.forEach(ev=>filas.push([e.inv,e.equipo,e.servicio,ev.f,ev.t,ev.e||""]));
   });
   descargarCSV(filas,`Fichas_tecnicas_${hoyISO()}.csv`);
 }
