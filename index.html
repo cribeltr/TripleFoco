@@ -121,6 +121,19 @@ button.btn.mini{padding:3px 8px;font-size:12px}
 .btn-sapo{background:none;border:none;cursor:pointer;font-size:16px;padding:0 3px;opacity:.45}
 .btn-sapo.act{opacity:1;filter:drop-shadow(0 0 3px #2e7d32)}
 .prio-sel{font-size:11px;padding:3px 5px}
+table.fija{table-layout:fixed;width:100%}
+table.fija td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.fija th{overflow:visible}
+th{position:relative}
+.fc-btn{background:none;border:none;cursor:pointer;font-size:11px;padding:0 2px;color:var(--azul)}
+.fc-btn.act{color:#fff;background:var(--ambar);border-radius:4px;padding:0 4px}
+.fc-drop{position:absolute;top:100%;left:0;min-width:210px;max-width:280px;background:#fff;
+  border:1px solid var(--borde);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.25);
+  padding:8px;z-index:95;font-weight:normal;text-align:left;white-space:normal}
+.fc-drop input[type=text]{width:100%;margin-bottom:4px}
+.fc-lista{max-height:230px;overflow:auto}
+.fc-item{display:flex;gap:6px;align-items:flex-start;font-size:12px;padding:2px 0;cursor:pointer}
+.fc-acciones{display:flex;gap:6px;margin-bottom:4px}
 </style>
 </head>
 <body>
@@ -328,6 +341,9 @@ function acInfo(id){
 document.addEventListener("click",ev=>{
   if(!ev.target.closest(".ac-cont"))
     document.querySelectorAll(".ac-lista").forEach(l=>l.style.display="none");
+  if(fcAbierto && !ev.target.closest(".fc-drop") && !ev.target.closest(".fc-btn")){
+    fcAbierto=null; render();
+  }
 });
 function selEjecutores(id, sel, conVacio){
   const vacio = conVacio ? `<option value="">${typeof conVacio==="string"?esc(conVacio):"— elegir —"}</option>` : "";
@@ -543,51 +559,125 @@ function vPanel(alertas){
 function irMes(m){ mesPlan=m; tabActual="plan"; render(); }
 
 /* ====================== Inventario ====================== */
-function vInventario(){
-  const fams=[...new Set(S.equipos.map(e=>e.fam).filter(Boolean))].sort();
-  const servs=[...new Set(S.equipos.map(e=>e.servicio).filter(Boolean))].sort();
-  const lista = S.equipos.filter(e=>{
-    if(filtros.fam && e.fam!==filtros.fam) return false;
-    if(filtros.serv && e.servicio!==filtros.serv) return false;
-    if(filtros.estado==="baja" && !e.baja) return false;
-    if(filtros.estado && filtros.estado!=="baja" && (e.baja || e.estado!==filtros.estado)) return false;
-    if(!filtros.estado && e.baja) return false;
-    if(filtros.q){
-      const q=filtros.q.toLowerCase();
-      const blob=`${e.inv} ${e.carpeta} ${e.equipo} ${e.marca} ${e.modelo} ${e.serie} ${e.servicio} ${e.unidad} ${e.ubicacion}`.toLowerCase();
-      if(!blob.includes(q)) return false;
-    }
-    return true;
+const COLS_INV=[
+  {k:"id",n:"ID",w:"4.5%"},
+  {k:"carpeta",n:"Carpeta",w:"6%"},
+  {k:"inv",n:"Inventario",w:"10%"},
+  {k:"equipo",n:"Equipo",w:"12.5%"},
+  {k:"marca",n:"Marca",w:"9%"},
+  {k:"modelo",n:"Modelo",w:"10.5%"},
+  {k:"serie",n:"Serie",w:"9.5%"},
+  {k:"servicio",n:"Servicio",w:"13%"},
+  {k:"estado",n:"Estado",w:"10.5%"},
+  {k:"pend",n:"Pend.",w:"5.5%"},
+  {k:"act",n:"Últ. act.",w:"8.5%"}
+];
+let filtroCol={};        // columna -> Set de valores elegidos
+let fcAbierto=null;      // columna con el desplegable abierto
+let fcQ="";              // búsqueda dentro del desplegable
+function valCol(e,k){
+  if(k==="pend") return String(S.pendientes.filter(x=>!x.done&&x.eqId===e.id).length);
+  if(k==="act"){ const f=S.fichas[e.id]; return f&&f.length?f[f.length-1].f:""; }
+  if(k==="estado") return e.baja?"Baja":(e.estado||"Operativo");
+  return String(e[k]??"").trim();
+}
+function pasaFiltrosCol(e,excepto){
+  for(const c of COLS_INV){
+    if(c.k===excepto) continue;
+    const set=filtroCol[c.k];
+    if(set&&!set.has(valCol(e,c.k))) return false;
+  }
+  return true;
+}
+function pasaBusqueda(e){
+  if(!filtros.q) return true;
+  const q=filtros.q.toLowerCase();
+  return `${e.id} ${e.inv} ${e.carpeta} ${e.equipo} ${e.marca} ${e.modelo} ${e.serie} ${e.servicio} ${e.unidad} ${e.ubicacion}`.toLowerCase().includes(q);
+}
+function toggleFC(k){ fcAbierto = fcAbierto===k?null:k; fcQ=""; render(); }
+let _fcVals=[];   // valores del desplegable abierto (evita escapar comillas en línea)
+function toggleValFC(k,idx){
+  const val=_fcVals[idx];
+  let set=filtroCol[k];
+  if(!set){
+    // estaba "todo seleccionado": crear el conjunto con todos menos este valor
+    set=new Set();
+    S.equipos.forEach(e=>{ if(pasaBusqueda(e)&&pasaFiltrosCol(e,k)) set.add(valCol(e,k)); });
+    set.delete(val);
+    filtroCol[k]=set;
+  }else if(set.has(val)) set.delete(val);
+  else set.add(val);
+  render();
+}
+function limpiarFC(k){ delete filtroCol[k]; render(); }
+function ningunoFC(k){ filtroCol[k]=new Set(); render(); }
+function dropFC(c){
+  // valores disponibles según los demás filtros y la búsqueda global
+  const vals=new Map();
+  S.equipos.forEach(e=>{
+    if(!pasaBusqueda(e)||!pasaFiltrosCol(e,c.k)) return;
+    const v=valCol(e,c.k);
+    vals.set(v,(vals.get(v)||0)+1);
   });
-  const filas = lista.slice(0,600).map(e=>`
-    <tr class="clic" onclick="abrirEquipo(${e.id})">
-      <td>${esc(e.carpeta)}</td><td>${esc(e.inv)}</td><td>${esc(e.equipo)}</td>
-      <td>${esc(e.marca)} ${esc(e.modelo)}</td><td>${esc(e.serie)}</td>
-      <td>${esc(e.servicio)}<br><span class="nota">${esc(e.unidad)} ${esc(e.ubicacion)}</span></td>
-      <td>${esc(e.frec)}</td><td>${tagEstado(e)}</td>
-    </tr>`).join("");
+  let lista=[...vals.entries()].sort((a,b)=>{
+    const na=+a[0], nb=+b[0];
+    if(!isNaN(na)&&!isNaN(nb)&&a[0]!==""&&b[0]!=="") return na-nb;
+    return a[0]<b[0]?-1:1;
+  });
+  if(fcQ) lista=lista.filter(([v])=>v.toLowerCase().includes(fcQ.toLowerCase()));
+  const set=filtroCol[c.k];
+  const muestra=lista.slice(0,250);
+  _fcVals=muestra.map(([v])=>v);
+  const fmtV=v=>c.k==="act"&&v?fmtF(v):(v===""?"(vacío)":v);
+  return `<div class="fc-drop" onclick="event.stopPropagation()">
+    <input type="text" id="fc-q" placeholder="Buscar valor…" value="${esc(fcQ)}" oninput="fcQ=this.value;render()">
+    <div class="fc-acciones">
+      <button class="btn mini sec" onclick="limpiarFC('${c.k}')">Todos</button>
+      <button class="btn mini sec" onclick="ningunoFC('${c.k}')">Ninguno</button>
+      <span class="nota derecha">${lista.length} valor(es)</span>
+    </div>
+    <div class="fc-lista">
+      ${muestra.map(([v,n],i)=>`<label class="fc-item">
+        <input type="checkbox" ${!set||set.has(v)?"checked":""}
+          onchange="event.stopPropagation();toggleValFC('${c.k}',${i})">
+        <span>${esc(fmtV(v))} <span class="nota">(${n})</span></span></label>`).join("")||'<p class="nota">Sin valores</p>'}
+      ${lista.length>250?'<p class="nota">…afina la búsqueda para ver más</p>':""}
+    </div>
+  </div>`;
+}
+function vInventario(){
+  const lista=S.equipos.filter(e=>pasaBusqueda(e)&&pasaFiltrosCol(e,null));
+  const filas=lista.slice(0,600).map(e=>{
+    const np=+valCol(e,"pend");
+    const act=valCol(e,"act");
+    return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))">
+      <td>${e.id}</td><td>${esc(e.carpeta)}</td><td title="${esc(e.inv)}">${esc(e.inv)}</td>
+      <td title="${esc(e.equipo)}">${esc(e.equipo)}</td><td title="${esc(e.marca)}">${esc(e.marca)}</td>
+      <td title="${esc(e.modelo)}">${esc(e.modelo)}</td><td title="${esc(e.serie)}">${esc(e.serie)}</td>
+      <td title="${esc(e.servicio)} · ${esc(e.unidad)} ${esc(e.ubicacion)}">${esc(e.servicio)}</td>
+      <td>${e.baja?'<span class="tag BAJA">Baja</span>':tagEstado(e)}</td>
+      <td>${np?`<span class="tag NO">${np}</span>`:'<span class="nota">0</span>'}</td>
+      <td>${act?fmtF(act):'<span class="nota">—</span>'}</td>
+    </tr>`;}).join("");
+  const hayFiltros=Object.keys(filtroCol).length;
   return `
   <h2>Inventario maestro (${lista.length} equipos)</h2>
   <div class="fila-filtros">
-    <input type="text" id="inv-q" placeholder="Buscar inventario, serie, modelo, servicio…" value="${esc(filtros.q)}"
-      oninput="filtros.q=this.value;render()" style="min-width:280px">
-    <select onchange="filtros.fam=this.value;render()"><option value="">Todas las familias</option>
-      ${fams.map(f=>`<option ${filtros.fam===f?"selected":""}>${esc(f)}</option>`).join("")}</select>
-    <select onchange="filtros.serv=this.value;render()"><option value="">Todos los servicios</option>
-      ${servs.map(f=>`<option ${filtros.serv===f?"selected":""}>${esc(f)}</option>`).join("")}</select>
-    <select onchange="filtros.estado=this.value;render()">
-      <option value="">Activos (todos)</option>
-      <option ${filtros.estado==="Operativo"?"selected":""}>Operativo</option>
-      <option ${filtros.estado==="No operativo"?"selected":""}>No operativo</option>
-      <option ${filtros.estado==="En servicio técnico"?"selected":""}>En servicio técnico</option>
-      <option value="baja" ${filtros.estado==="baja"?"selected":""}>Dados de baja</option>
-    </select>
+    <input type="text" id="inv-q" placeholder="Buscar en todo el inventario…" value="${esc(filtros.q)}"
+      oninput="filtros.q=this.value;render()" style="min-width:260px;flex:1">
+    ${hayFiltros?`<button class="btn mini sec" onclick="filtroCol={};fcAbierto=null;render()">✕ Quitar filtros de columna (${hayFiltros})</button>`:""}
+    <span class="nota">▾ en cada columna filtra como en Excel (uno o más valores)</span>
   </div>
-  <div class="tablewrap"><table>
-    <tr><th>Carpeta</th><th>Inventario</th><th>Equipo</th><th>Marca / Modelo</th><th>Serie</th><th>Servicio</th><th>Frec. MP</th><th>Estado</th></tr>
-    ${filas||"<tr><td colspan=8>Sin resultados</td></tr>"}
-  </table></div>
-  ${lista.length>600?'<p class="nota">Mostrando los primeros 600; afina la búsqueda.</p>':""}`;
+  <table class="fija">
+    <tr>${COLS_INV.map(c=>{
+      const act=filtroCol[c.k]&&filtroCol[c.k].size;
+      return `<th style="width:${c.w}">${c.n}
+        <button class="fc-btn ${act?"act":""}" title="Filtrar ${esc(c.n)}"
+          onclick="event.stopPropagation();toggleFC('${c.k}')">▾</button>
+        ${fcAbierto===c.k?dropFC(c):""}</th>`;}).join("")}</tr>
+    ${filas||`<tr><td colspan="${COLS_INV.length}">Sin resultados</td></tr>`}
+  </table>
+  ${lista.length>600?'<p class="nota">Mostrando los primeros 600; afina la búsqueda o los filtros.</p>':""}`;
 }
 
 /* ====================== Ficha de equipo (modal) ====================== */
