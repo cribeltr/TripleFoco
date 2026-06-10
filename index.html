@@ -73,6 +73,13 @@ button.btn.mini{padding:3px 8px;font-size:12px}
 .modal-fondo.abierto{display:block}
 .modal{background:#fff;border-radius:14px;max-width:980px;margin:0 auto;padding:20px 24px;position:relative;box-shadow:0 8px 32px rgba(0,0,0,.25)}
 .modal .cerrar{position:absolute;top:10px;right:14px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--gris)}
+.modal h2{border-bottom:2px solid var(--azul-claro);padding-bottom:10px;margin-bottom:14px}
+.modal h3{color:var(--azul-osc);border-left:3px solid var(--azul);padding-left:8px}
+.gridinfo{background:#f6f9fc;border-radius:10px;padding:12px 14px}
+.gridinfo div b{text-transform:uppercase;letter-spacing:.4px;font-size:10px}
+.meses .mc{transition:background .15s}
+.meses .mc.actual{border:2px solid var(--azul);background:var(--azul-claro)}
+.form-suave{background:#f6f9fc;border-radius:10px;padding:10px;margin-bottom:10px}
 .gridinfo{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px 16px;font-size:13px;margin-bottom:10px}
 .gridinfo div b{color:var(--gris);font-weight:600;font-size:11px;display:block}
 .meses{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;text-align:center;font-size:11px}
@@ -845,13 +852,14 @@ function pintarModalEquipo(){
   const ficha = (S.fichas[e.id]||[]).map((ev,i)=>({f:ev.f,t:ev.t,e:ev.e,st:ev.st,i})).reverse();
   const corrs = S.correctivos.filter(c=>c.eqId===e.id);
   const pends = S.pendientes.filter(p=>p.eqId===e.id && !p.done);
+  const mesHoy = new Date().getFullYear()===ANIO ? new Date().getMonth() : -1;
   const grilla = MESES.map((mn,i)=>{
     const p=e.plan[i], r=codResultado(e.resultado[i][1]);
-    return `<div class="mc"><b>${mn}</b>${tagPlan(p)||"·"}<br>${tagRes(r)||""}</div>`;
+    return `<div class="mc ${i===mesHoy?"actual":""}" title="${i===mesHoy?"Mes actual":""}"><b>${mn}</b>${tagPlan(p)||"·"}<br>${tagRes(r)||""}</div>`;
   }).join("");
   $("#modal").innerHTML = `
   <button class="cerrar" onclick="cerrarModal()">×</button>
-  <h2>${esc(nombreEq(e))} ${tagEstado(e)} ${e.baja?'<span class="tag BAJA">BAJA</span>':""}</h2>
+  <h2>${esc(nombreEq(e))} <span class="tag gris" style="font-size:13px">Inv. ${esc(e.inv)||esc(e.serie)||"s/n"}</span> ${tagEstado(e)} ${e.baja?'<span class="tag BAJA">BAJA</span>':""}</h2>
   <div class="gridinfo">
     <div><b>N° Inventario</b>${esc(e.inv)||"—"}</div><div><b>N° Carpeta</b>${esc(e.carpeta)||"—"}</div>
     <div><b>Serie</b>${esc(e.serie)||"—"}</div><div><b>Familia</b>${esc(e.fam)}</div>
@@ -885,11 +893,12 @@ function pintarModalEquipo(){
   <div class="dosc">
     <div>
       <h3>Ficha técnica (historial)</h3>
-      <div class="flex no-print">
+      <div class="form-suave no-print">
+      <div class="flex">
         <input type="date" id="ft-fecha" value="${hoyISO()}">
         <input type="text" id="ft-texto" placeholder="Ej: mantención preventiva, equipo operativo" style="flex:1">
       </div>
-      <div class="flex no-print" style="margin-top:5px">
+      <div class="flex" style="margin-top:5px">
         ${selEjecutores("ft-ejecutor","","— ejecutor (opcional) —")}
         <select id="ft-estado">
           <option value="">— estado: sin cambio —</option>
@@ -898,6 +907,7 @@ function pintarModalEquipo(){
           <option>En servicio técnico</option>
         </select>
         <button class="btn mini" id="ft-btn" onclick="addFicha(${e.id})">Agregar</button>
+      </div>
       </div>
       <div class="hist">${ficha.length?ficha.map(ev=>`<div class="ev"><span class="f">${fmtF(ev.f)}</span> — ${esc(ev.t)}
         ${ev.e?`<span class="tag gris">${esc(ev.e)}</span>`:""} ${tagSt(ev.st)}
