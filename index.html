@@ -776,7 +776,25 @@ function basePlan(e){
 }
 /* ---- filtros tipo Excel, genéricos para varias tablas ---- */
 let fcTabla=null, fcAbierto=null, fcQ="", _fcVals=[];
-const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}, asig:{}};
+const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}, asig:{}, ult:{}};
+const COLS_ULT=[
+  {k:"id",n:"ID",w:"4%",cls:"oc-sm"},{k:"carpeta",n:"Carpeta",w:"5.5%"},
+  {k:"inv",n:"Inventario",w:"8.5%"},{k:"equipo",n:"Equipo",w:"11%"},
+  {k:"marca",n:"Marca",w:"8%",cls:"oc-md"},{k:"modelo",n:"Modelo",w:"8.5%",cls:"oc-md"},
+  {k:"servicio",n:"Servicio",w:"11.5%"},{k:"resp",n:"Responsable",w:"12%"},
+  {k:"f",n:"Últ. MP",w:"7.5%"},{k:"ej",n:"Ejecutor",w:"11%"},
+  {k:"det",n:"Detalle",w:"12%",nf:true}
+];
+function valColUlt(e,k){
+  if(k==="resp") return valColAsig(e,"resp");
+  if(k==="f"||k==="ej"||k==="det"){
+    const u=ultimoPrev(e);
+    if(k==="f") return u&&u.f?u.f:(u?"(solo planilla)":"(sin registro)");
+    if(k==="ej") return u?(u.e||""):"";
+    return u?u.t:"SIN REGISTRO";
+  }
+  return String(e[k]??"").trim();
+}
 const COLS_ASIG=[
   {k:"carpeta",n:"Carpeta",w:"5.5%",cls:"oc-lg"},{k:"inv",n:"Inventario",w:"9%"},
   {k:"equipo",n:"Equipo",w:"10.5%"},{k:"servicio",n:"Servicio",w:"11.5%"},
@@ -805,6 +823,7 @@ function fcCfg(t){
   if(t==="inv") return {cols:COLS_INV, base:pasaBusqueda, val:valCol};
   if(t==="plan") return {cols:colsPlan(), base:basePlan, val:valColPlan, rows:mesPlan<0?filasPlanTodos:null};
   if(t==="asig") return {cols:COLS_ASIG, base:baseAsig, val:valColAsig};
+  if(t==="ult") return {cols:COLS_ULT, base:baseAsig, val:valColUlt};
   if(t==="dej") return {cols:[{k:"k",n:"Ejecutor",w:"24%"},{k:"asig",n:"Asignadas",w:"12%"},
     {k:"si",n:"Ejecutadas (Si)",w:"13%"},{k:"causal",n:"Causal",w:"11%"},{k:"pend",n:"Pendientes",w:"12%"},
     {k:"pct",n:"% Ejecutado",w:"13%"}], base:()=>true, val:(g,k)=>String(g[k]), rows:()=>_dist.ej};
@@ -1373,32 +1392,41 @@ let vistaAsig="lista";
 function vAsignacion(){
   const m=mesAsig;
   if(vistaAsig==="dist"){
-    const lista=S.equipos.filter(baseAsig);
+    const lista=fcFilas("ult",null);
+    const hayF=Object.keys(FCF.ult).length;
+    const respSel=FCF.ult.resp&&FCF.ult.resp.size===1?[...FCF.ult.resp][0]:"";
     return `
     <h2>Asignación — Distribución (último evento preventivo)</h2>
     <div class="fila-filtros no-print">
       <button class="btn sec mini" onclick="vistaAsig='lista';render()">📋 Asignación</button>
       <button class="btn mini" onclick="vistaAsig='dist';render()">📊 Distribución</button>
-      <select onchange="mesAsig=+this.value;render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+      <select onchange="mesAsig=+this.value;FCF.ult={};render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+      <select onchange="this.value?FCF.ult.resp=new Set([this.value]):delete FCF.ult.resp;render()" title="Descargar por responsable">
+        <option value="">— todos los responsables —</option>
+        ${S.responsables.map(r2=>`<option ${respSel===r2?"selected":""}>${esc(r2)}</option>`).join("")}
+        <option ${respSel==="(sin asignar)"?"selected":""}>(sin asignar)</option>
+      </select>
       <button class="btn" onclick="exportarUltPrev()">⬇ Excel</button>
       <button class="btn sec" onclick="window.print()">⬇ PDF (imprimir → guardar como PDF)</button>
-      <span class="derecha nota">${lista.length} equipos con MP en ${MESES_L[m]}</span>
+      ${hayF?`<button class="btn mini sec" onclick="FCF.ult={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}
+      <span class="derecha nota">${lista.length} equipos · ${MESES_L[m]}</span>
     </div>
     <p class="solo-print"><b>HOSPITAL REGIONAL DE TEMUCO — EQUIPAMIENTO CLÍNICO CRÍTICO</b><br>
-    Distribución — último evento preventivo · ${MESES_L[m]} ${ANIO} · ${fmtF(hoyISO())}</p>
-    <table class="fija"><tr><th style="width:9%">Inventario</th><th style="width:12%">Equipo</th>
-      <th style="width:12%">Marca / Modelo</th><th style="width:12%">Servicio</th>
-      <th style="width:12%">Responsable</th><th style="width:8%">Últ. MP</th>
-      <th style="width:11%">Ejecutor</th><th>Detalle</th></tr>
-    ${lista.map(e=>{const u=ultimoPrev(e);
-      return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))">
-      <td>${esc(e.inv)||esc(e.serie)}</td><td title="${esc(e.equipo)}">${esc(e.equipo)}</td>
-      <td title="${esc(e.marca)} ${esc(e.modelo)}">${esc(e.marca)} ${esc(e.modelo)}</td>
-      <td title="${esc(e.servicio)}">${esc(e.servicio)}</td>
-      <td title="${esc(valColAsig(e,"resp"))}">${esc(valColAsig(e,"resp"))}</td>
-      <td>${u&&u.f?fmtF(u.f):(u?"—":'<span class="tag NO">sin registro</span>')}</td>
-      <td>${u?esc(u.e):""}</td>
-      <td class="nota" title="${u?esc(u.t):""}">${u?esc(u.t):""}</td></tr>`;}).join("")}
+    Distribución — último evento preventivo${respSel?` · Responsable: ${esc(respSel)}`:""} · ${MESES_L[m]} ${ANIO} · ${fmtF(hoyISO())}</p>
+    <table class="fija">
+      <tr>${COLS_ULT.map(c=>thFC("ult",c)).join("")}</tr>
+      ${lista.map(e=>{const u=ultimoPrev(e);
+        return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))">
+        <td class="oc-sm">${e.id}</td><td>${esc(e.carpeta)}</td>
+        <td>${esc(e.inv)||esc(e.serie)}</td><td title="${esc(e.equipo)}">${esc(e.equipo)}</td>
+        <td class="oc-md" title="${esc(e.marca)}">${esc(e.marca)}</td>
+        <td class="oc-md" title="${esc(e.modelo)}">${esc(e.modelo)}</td>
+        <td title="${esc(e.servicio)}">${esc(e.servicio)}</td>
+        <td title="${esc(valColAsig(e,"resp"))}">${esc(valColAsig(e,"resp"))}</td>
+        <td>${u&&u.f?fmtF(u.f):(u?"—":'<span class="tag NO">sin registro</span>')}</td>
+        <td title="${u?esc(u.e):""}">${u?esc(u.e):""}</td>
+        <td class="nota" title="${u?esc(u.t):""}">${u?esc(u.t):""}</td></tr>`;}).join("")
+        ||`<tr><td colspan="${COLS_ULT.length}">Sin equipos para este filtro.</td></tr>`}
     </table>`;
   }
   const lista=fcFilas("asig",null);
@@ -1447,18 +1475,20 @@ function vAsignacion(){
 }
 function exportarUltPrev(){
   const m=mesAsig;
+  const respSel=FCF.ult.resp&&FCF.ult.resp.size===1?[...FCF.ult.resp][0]:"";
   const filas=[["HOSPITAL REGIONAL DE TEMUCO — EQUIPAMIENTO CLÍNICO CRÍTICO"],
-    [`Distribución — último evento preventivo · ${MESES_L[m]} ${ANIO}`],
+    [`Distribución — último evento preventivo${respSel?` · Responsable: ${respSel}`:""} · ${MESES_L[m]} ${ANIO}`],
     [`Fecha de creación: ${fmtF(hoyISO())} · Generado por GEB`],[],
-    ["N° Inventario","Equipo","Marca","Modelo","Serie","Servicio","Responsable","Fecha últ. MP","Ejecutor","Detalle"]];
-  S.equipos.filter(baseAsig).forEach(e=>{
+    ["ID","N° Carpeta","N° Inventario","Equipo","Marca","Modelo","Serie","Servicio","Responsable","Fecha últ. MP","Ejecutor","Detalle"]];
+  fcFilas("ult",null).forEach(e=>{
     const u=ultimoPrev(e);
-    filas.push([e.inv,e.equipo,e.marca,e.modelo,e.serie,e.servicio,valColAsig(e,"resp"),
+    filas.push([e.id,e.carpeta,e.inv,e.equipo,e.marca,e.modelo,e.serie,e.servicio,valColAsig(e,"resp"),
       u&&u.f?u.f:"",u?u.e:"",u?u.t:"SIN REGISTRO"]);
   });
+  const suf=respSel?"_"+respSel.split(" ")[0]:"";
   const blob=xlsxCrear(filas,[],-1,3,"Último evento MP");
   const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob); a.download=`Ultimo_evento_MP_${MESES_L[m]}_${ANIO}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
+  a.href=URL.createObjectURL(blob); a.download=`Ultimo_evento_MP_${MESES_L[m]}${suf}_${ANIO}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
 }
 function setAsig(m,id,v){ if(!S.asig[m])S.asig[m]={}; if(v)S.asig[m][id]=v; else delete S.asig[m][id]; guardar(); render(); }
 function autoAsignar(m){
