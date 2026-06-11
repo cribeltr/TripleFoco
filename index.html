@@ -161,6 +161,7 @@ th{position:relative}
   <button data-t="inventario">🗂 Inventario</button>
   <button data-t="plan">🗓 Plan MP</button>
   <button data-t="asignacion">👷 Asignación</button>
+  <button data-t="documentos">📁 Documentos</button>
   <button data-t="informes">📄 Informes</button>
   <button data-t="correctivos">🛠 Correctivos</button>
   <button data-t="reportes">🧾 Reportes</button>
@@ -217,7 +218,7 @@ function seed(){
   // importando el Excel maestro desde el Panel o la pestaña Datos
   return {
     version:3, equipos:[], fichas:{}, correctivos:[], pendientes:[],
-    asig:{}, docs:{}, reprog:{}, mpEjec:{}, responsables:RESPONSABLES_BASE.slice(),
+    asig:{}, docs:{}, reprog:{}, mpEjec:{}, docflow:{}, responsables:RESPONSABLES_BASE.slice(),
     config:{alertaST:30, alertaCorrectivo:20}, nextCorr:1, nextPend:1
   };
 }
@@ -232,6 +233,7 @@ function cargar(){
 }
 function normalizar(){
   S.mpEjec = S.mpEjec || {};
+  S.docflow = S.docflow || {};
   // hitos en orden cronológico aunque se hayan registrado en desorden
   (S.correctivos||[]).forEach(c=>{
     ordenarHitos(c);
@@ -453,6 +455,7 @@ function render(){
   else if(tabActual==="inventario") m.innerHTML = vInventario();
   else if(tabActual==="plan") m.innerHTML = vPlan();
   else if(tabActual==="asignacion") m.innerHTML = vAsignacion();
+  else if(tabActual==="documentos") m.innerHTML = vDocumentos();
   else if(tabActual==="informes") m.innerHTML = vInformes();
   else if(tabActual==="correctivos") m.innerHTML = vCorrectivos();
   else if(tabActual==="reportes"){ m.innerHTML = vReportes(); setTimeout(montarReportes,0); }
@@ -776,7 +779,7 @@ function basePlan(e){
 }
 /* ---- filtros tipo Excel, genéricos para varias tablas ---- */
 let fcTabla=null, fcAbierto=null, fcQ="", _fcVals=[];
-const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}, asig:{}, ult:{}, inf:{}};
+const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}, asig:{}, ult:{}, inf:{}, doc:{}};
 const COLS_INF=[
   {k:"servicio",n:"Servicio",w:"10.5%"},{k:"inv",n:"Inventario",w:"8%"},
   {k:"equipo",n:"Equipo",w:"10%"},{k:"ubic",n:"Ubicación",w:"9.5%",cls:"oc-lg"},
@@ -871,6 +874,8 @@ function fcCfg(t){
   if(t==="asig") return {cols:colsAsig(), base:baseAsig, val:valColAsig, rows:mesAsig<0?filasAsigTodos:null};
   if(t==="ult") return {cols:COLS_ULT, base:baseAsig, val:valColUlt};
   if(t==="inf") return {cols:COLS_INF, base:baseInf, val:valColInf};
+  if(t==="doc") return {cols:COLS_DOC, base:()=>true,
+    val:(g,k)=>k==="est"?DOC_EST[g.est]:String(g[k]??""), rows:()=>_dist.docs||[]};
   if(t==="dej") return {cols:[{k:"k",n:"Ejecutor",w:"24%"},{k:"asig",n:"Asignadas",w:"12%"},
     {k:"si",n:"Ejecutadas (Si)",w:"13%"},{k:"causal",n:"Causal",w:"11%"},{k:"pend",n:"Pendientes",w:"12%"},
     {k:"pct",n:"% Ejecutado",w:"13%"}], base:()=>true, val:(g,k)=>String(g[k]), rows:()=>_dist.ej};
@@ -1870,7 +1875,7 @@ const PRIO={
   3:{n:"👥 Delegar",d:"Urgente, no importante: pásalo a un ejecutor y haz seguimiento",bg:"var(--ambar-bg)",c:"var(--ambar)"},
   4:{n:"🗑 Opcional",d:"Ni urgente ni importante: elimínalo o déjalo para después",bg:"var(--gris-bg)",c:"var(--gris)"}
 };
-let vistaPend="matriz";
+let vistaPend="lista";
 function pendVencido(p){ return p.limite && p.limite<hoyISO() && !p.done; }
 function setPrio(id,v){
   const p=S.pendientes.find(x=>x.id===id);
@@ -2502,6 +2507,128 @@ function exportarInformeCSV(){
       r||"Pendiente",d.f||"",d.e||"",valColInf(e,"resp"),valColInf(e,"st"),(d.o||"")+(/^C/.test(r)?" "+(CAUSALES[r]||""):"")]);
   });
   descargarCSV(filas,`Informe_servicios_${MESES_L[m]}_${ANIO}.csv`);
+}
+
+/* ====================== Documentos (flujo documental) ====================== */
+let mesDoc=-1, docsPrint=null;
+const DOC_EST={imprimir:"📄 Por imprimir", entregado:"✍️ Entregado (espera firma)", archivado:"✅ Archivado"};
+const COLS_DOC=[
+  {k:"tipo",n:"Documento",w:"14%"},{k:"mesN",n:"Mes",w:"5%"},
+  {k:"inv",n:"Inventario",w:"8.5%"},{k:"equipo",n:"Equipo",w:"10.5%"},
+  {k:"servicio",n:"Servicio",w:"11.5%"},{k:"det",n:"Detalle",w:"9%"},
+  {k:"resp",n:"Responsable",w:"12%"},{k:"est",n:"Estado",w:"15%",nf:true}
+];
+function calcDocs(){
+  const out=[];
+  S.equipos.forEach(e=>{
+    if(e.baja) return;
+    e.resultado.forEach((rr,m)=>{
+      if(mesDoc>=0&&m!==mesDoc) return;
+      const r=codResultado(rr[1]);
+      const resp=(S.asig[m]||{})[e.id]||e.respMP||"(sin asignar)";
+      if(/^C[1-8]$/.test(r)){
+        const key="rep-"+e.id+"-"+m;
+        out.push({key, tipo:"Reporte reprogramación", mesN:MESES[m], m, eq:e, inv:e.inv||e.serie,
+          equipo:e.equipo, servicio:e.servicio, det:r, resp,
+          est:(S.docflow[key]||{}).st||"imprimir", clase:"rep"});
+      }
+      if(esEjecutada(r)){
+        const d=S.docs[e.id+"-"+m]||{};
+        const ki="int-"+e.id+"-"+m;
+        out.push({key:ki, tipo:FAM_EXTERNA.includes(e.fam)?"Reporte interno MP":"Protocolo MP", mesN:MESES[m], m, eq:e,
+          inv:e.inv||e.serie, equipo:e.equipo, servicio:e.servicio, det:r, resp,
+          est:d.int?"archivado":((S.docflow[ki]||{}).st||"imprimir"), clase:"int"});
+        if(FAM_EXTERNA.includes(e.fam)){
+          const ke="emp-"+e.id+"-"+m;
+          out.push({key:ke, tipo:"Informe empresa", mesN:MESES[m], m, eq:e, inv:e.inv||e.serie,
+            equipo:e.equipo, servicio:e.servicio, det:r, resp,
+            est:d.emp?"archivado":((S.docflow[ke]||{}).st||"imprimir"), clase:"emp"});
+        }
+      }
+    });
+  });
+  _dist.docs=out;
+  return out;
+}
+function setDocEst(key,clase,id,m,v){
+  if(clase==="int"||clase==="emp"){
+    const k2=id+"-"+m;
+    if(!S.docs[k2]) S.docs[k2]={};
+    S.docs[k2][clase==="int"?"int":"emp"]=(v==="archivado");
+  }
+  S.docflow[key]={st:v, f:hoyISO()};
+  guardar(); render();
+}
+function formReprog(d){
+  const e=d.eq;
+  const rep=S.reprog[e.id+"-"+d.m];
+  return `<div style="page-break-after:always;padding:14mm 10mm;font-size:13px">
+    <div style="text-align:center"><b>HOSPITAL REGIONAL DE TEMUCO — SUBDEPARTAMENTO EQUIPAMIENTO CLÍNICO</b><br>
+    <b style="font-size:15px">REPORTE DE CAUSAS DE REPROGRAMACIÓN — MANTENCIÓN PREVENTIVA</b></div>
+    <br>
+    <table style="width:100%;border-collapse:collapse" border="1" cellpadding="6">
+      <tr><td><b>Equipo</b><br>${esc(e.equipo)}</td><td><b>Marca / Modelo</b><br>${esc(e.marca)} ${esc(e.modelo)}</td>
+          <td><b>N° Inventario</b><br>${esc(e.inv)||"s/n"}</td><td><b>Serie</b><br>${esc(e.serie)||"—"}</td></tr>
+      <tr><td><b>Servicio</b><br>${esc(e.servicio)}</td><td><b>Unidad / Ubicación</b><br>${esc(e.unidad)} ${esc(e.ubicacion)}</td>
+          <td><b>N° Carpeta</b><br>${esc(e.carpeta)}</td><td><b>Frecuencia MP</b><br>${esc(e.frec)||"—"}</td></tr>
+      <tr><td colspan="2"><b>Mes originalmente programado</b><br>${MESES_L[d.m]} ${ANIO}</td>
+          <td colspan="2"><b>Mes de reprogramación</b><br>${rep?MESES_L[rep.destino]+" "+ANIO:"_______________"}</td></tr>
+      <tr><td colspan="4"><b>Causal ${esc(d.det)}:</b> ${esc(CAUSALES[d.det]||"")}</td></tr>
+      <tr><td colspan="4" style="height:60px"><b>Observaciones:</b></td></tr>
+    </table>
+    <br><br><br>
+    <table style="width:100%"><tr>
+      <td style="text-align:center">_______________________<br>${esc(d.resp)}<br>Responsable Equipamiento Clínico</td>
+      <td style="text-align:center">_______________________<br>Nombre y firma<br>Supervisor(a) Servicio Clínico</td>
+    </tr></table>
+    <p style="font-size:10px;color:#666">Generado por GEB el ${fmtF(hoyISO())} · Causales C1, C5–C8: ejecutar dentro de 30 días corridos tras el fin del mes programado.</p>
+  </div>`;
+}
+function imprimirLote(){
+  const lote=fcFilas("doc",null).filter(d=>d.clase==="rep"&&d.est!=="archivado");
+  if(!lote.length) return alert("No hay reportes de reprogramación pendientes en el filtro actual.");
+  docsPrint=lote;
+  const main=$("#main");
+  const prev=main.innerHTML;
+  main.innerHTML=lote.map(formReprog).join("");
+  window.print();
+  docsPrint=null;
+  main.innerHTML=prev;
+  if(confirm(`¿Marcar los ${lote.length} reportes como "Entregado (espera firma)"?`))
+    lote.forEach(d=>{ S.docflow[d.key]={st:"entregado", f:hoyISO()}; });
+  guardar(); render();
+}
+function vDocumentos(){
+  calcDocs();
+  const lista=fcFilas("doc",null);
+  const hayF=Object.keys(FCF.doc).length;
+  const pend=lista.filter(d=>d.est!=="archivado").length;
+  const reps=lista.filter(d=>d.clase==="rep"&&d.est!=="archivado").length;
+  return `
+  <h2>📁 Documentos — carpeta física al día</h2>
+  <p class="nota">Se generan solos desde la planilla: cada causal crea su <b>reporte de reprogramación</b>; cada MP ejecutada, su <b>protocolo</b> (y el <b>informe de empresa</b> en familias externas). Flujo: imprimir → entregar para firma → archivar en la carpeta.</p>
+  <div class="fila-filtros">
+    <select onchange="mesDoc=+this.value;FCF.doc={};render()">
+      <option value="-1" ${mesDoc<0?"selected":""}>📆 Todos los meses</option>
+      ${MESES_L.map((n,i)=>`<option value="${i}" ${i===mesDoc?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+    <button class="btn" onclick="imprimirLote()">🖨 Imprimir lote de reprogramaciones (${reps})</button>
+    ${hayF?`<button class="btn mini sec" onclick="FCF.doc={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}
+    <span class="derecha nota"><b>${pend}</b> documentos pendientes · ${lista.length} en total</span>
+  </div>
+  <p class="nota">▾ filtra como en Excel: ej. Responsable = Ignacio + Documento = Reporte reprogramación → su lote completo para imprimir y entregar de una vez.</p>
+  <table class="fija">
+    <tr>${COLS_DOC.map(c=>thFC("doc",c)).join("")}</tr>
+    ${lista.map(d=>`<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${d.eq.id}))" style="${d.est==="archivado"?"opacity:.55":""}">
+      <td><b>${esc(d.tipo)}</b></td><td>${d.mesN}</td>
+      <td>${esc(d.inv)}</td><td title="${esc(d.equipo)}">${esc(d.equipo)}</td>
+      <td title="${esc(d.servicio)}">${esc(d.servicio)}</td>
+      <td>${/^C/.test(d.det)?`<span class="tag C">${d.det}</span>`:tagRes(d.det)}</td>
+      <td title="${esc(d.resp)}">${esc(d.resp)}</td>
+      <td style="overflow:visible"><select style="width:100%" onchange="setDocEst('${d.key}','${d.clase}',${d.eq.id},${d.m},this.value)">
+        ${Object.entries(DOC_EST).map(([k2,n2])=>`<option value="${k2}" ${d.est===k2?"selected":""}>${n2}</option>`).join("")}
+      </select></td>
+    </tr>`).join("")||`<tr><td colspan="${COLS_DOC.length}">Sin documentos para este filtro. 🎉</td></tr>`}
+  </table>`;
 }
 
 /* ====================== Cierre de mes asistido ====================== */
