@@ -803,12 +803,34 @@ const COLS_ASIG=[
   {k:"serie",n:"Serie",w:"8%",cls:"oc-md"},{k:"frec",n:"Frec.",w:"6%",cls:"oc-sm"},
   {k:"prog",n:"Prog.",w:"4.5%"},{k:"resp",n:"Responsable",w:"13%"}
 ];
+let filtroAsigQ="";
+function mesDeA(e){ return e._m!=null?e._m:mesAsig; }
 function valColAsig(e,k){
-  if(k==="prog") return e.plan[mesAsig]||"";
-  if(k==="resp") return (S.asig[mesAsig]||{})[e.id]||e.respMP||"(sin asignar)";
+  const mm=mesDeA(e);
+  if(k==="mes") return mm>=0?MESES[mm]:"";
+  if(k==="prog") return mm>=0?(e.plan[mm]||""):"";
+  if(k==="resp") return mm>=0?((S.asig[mm]||{})[e.id]||e.respMP||"(sin asignar)"):(e.respMP||"(sin asignar)");
   return String(e[k]??"").trim();
 }
-function baseAsig(e){ return !e.baja && ["X","R","RA"].includes(e.plan[mesAsig]); }
+function baseAsig(e){
+  if(e.baja) return false;
+  if(filtroAsigQ){
+    const q=filtroAsigQ.toLowerCase();
+    if(!`${e.id} ${e.inv} ${e.carpeta} ${e.equipo} ${e.marca} ${e.modelo} ${e.serie} ${e.servicio} ${e.unidad} ${e.ubicacion}`.toLowerCase().includes(q)) return false;
+  }
+  const mm=mesDeA(e);
+  if(mm<0) return e.plan.some(c=>["X","R","RA"].includes(c));
+  return ["X","R","RA"].includes(e.plan[mm]);
+}
+function filasAsigTodos(){
+  const out=[];
+  S.equipos.forEach(e=>{
+    if(e.baja) return;
+    e.plan.forEach((c,m)=>{ if(["X","R","RA"].includes(c)) out.push(Object.assign({},e,{_m:m})); });
+  });
+  return out;
+}
+function colsAsig(){ return mesAsig<0?[{k:"mes",n:"Mes",w:"4.5%"},...COLS_ASIG]:COLS_ASIG; }
 function ultimoPrev(e){
   const ev=(S.fichas[e.id]||[]).slice().reverse().find(x=>/preventiv/i.test(x.t));
   if(ev) return {f:ev.f, t:ev.t, e:ev.e||""};
@@ -822,7 +844,7 @@ const COLS_DIST_NUM=[{k:"t",n:"Totales",w:"11%"},{k:"op",n:"Operativos",w:"11%"}
 function fcCfg(t){
   if(t==="inv") return {cols:COLS_INV, base:pasaBusqueda, val:valCol};
   if(t==="plan") return {cols:colsPlan(), base:basePlan, val:valColPlan, rows:mesPlan<0?filasPlanTodos:null};
-  if(t==="asig") return {cols:COLS_ASIG, base:baseAsig, val:valColAsig};
+  if(t==="asig") return {cols:colsAsig(), base:baseAsig, val:valColAsig, rows:mesAsig<0?filasAsigTodos:null};
   if(t==="ult") return {cols:COLS_ULT, base:baseAsig, val:valColUlt};
   if(t==="dej") return {cols:[{k:"k",n:"Ejecutor",w:"24%"},{k:"asig",n:"Asignadas",w:"12%"},
     {k:"si",n:"Ejecutadas (Si)",w:"13%"},{k:"causal",n:"Causal",w:"11%"},{k:"pend",n:"Pendientes",w:"12%"},
@@ -1400,7 +1422,10 @@ function vAsignacion(){
     <div class="fila-filtros no-print">
       <button class="btn sec mini" onclick="vistaAsig='lista';render()">📋 Asignación</button>
       <button class="btn mini" onclick="vistaAsig='dist';render()">📊 Distribución</button>
-      <select onchange="mesAsig=+this.value;FCF.ult={};render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+      <select onchange="mesAsig=+this.value;FCF.ult={};render()">
+        <option value="-1" ${m<0?"selected":""}>📆 Todos los meses</option>
+        ${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+      <input type="text" id="ult-q" placeholder="Buscar serie, inventario…" value="${esc(filtroAsigQ)}" oninput="filtroAsigQ=this.value;render()">
       <select onchange="this.value?FCF.ult.resp=new Set([this.value]):delete FCF.ult.resp;render()" title="Descargar por responsable">
         <option value="">— todos los responsables —</option>
         ${S.responsables.map(r2=>`<option ${respSel===r2?"selected":""}>${esc(r2)}</option>`).join("")}
@@ -1409,10 +1434,10 @@ function vAsignacion(){
       <button class="btn" onclick="exportarUltPrev()">⬇ Excel</button>
       <button class="btn sec" onclick="window.print()">⬇ PDF (imprimir → guardar como PDF)</button>
       ${hayF?`<button class="btn mini sec" onclick="FCF.ult={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}
-      <span class="derecha nota">${lista.length} equipos · ${MESES_L[m]}</span>
+      <span class="derecha nota">${lista.length} equipos · ${m<0?"todo el año":MESES_L[m]}</span>
     </div>
     <p class="solo-print"><b>HOSPITAL REGIONAL DE TEMUCO — EQUIPAMIENTO CLÍNICO CRÍTICO</b><br>
-    Distribución — último evento preventivo${respSel?` · Responsable: ${esc(respSel)}`:""} · ${MESES_L[m]} ${ANIO} · ${fmtF(hoyISO())}</p>
+    Distribución — último evento preventivo${respSel?` · Responsable: ${esc(respSel)}`:""} · ${m<0?"Año":MESES_L[m]} ${ANIO} · ${fmtF(hoyISO())}</p>
     <table class="fija">
       <tr>${COLS_ULT.map(c=>thFC("ult",c)).join("")}</tr>
       ${lista.map(e=>{const u=ultimoPrev(e);
@@ -1430,54 +1455,59 @@ function vAsignacion(){
     </table>`;
   }
   const lista=fcFilas("asig",null);
-  const asigMes=S.asig[m]||{};
   const filas=lista.map(e=>{
-    const sel=asigMes[e.id]||"";
+    const mm=mesDeA(e);
+    const sel=(S.asig[mm]||{})[e.id]||"";
     return `<tr>
+      ${m<0?`<td><b>${MESES[mm]}</b></td>`:""}
       <td class="oc-lg">${esc(e.carpeta)}</td><td>${esc(e.inv)||esc(e.serie)}</td>
       <td title="${esc(e.equipo)}">${esc(e.equipo)}</td><td title="${esc(e.servicio)}">${esc(e.servicio)}</td>
       <td class="oc-lg">${esc(e.unidad)}</td><td class="oc-lg">${esc(e.ubicacion)}</td>
       <td class="oc-md">${esc(e.marca)}</td><td class="oc-md">${esc(e.modelo)}</td><td class="oc-md">${esc(e.serie)}</td>
-      <td class="oc-sm">${esc(e.frec)}</td><td>${tagPlan(e.plan[m])}</td>
-      <td class="no-print" style="overflow:visible"><select style="width:100%" onchange="setAsig(${m},${e.id},this.value)">
+      <td class="oc-sm">${esc(e.frec)}</td><td>${tagPlan(e.plan[mm])}</td>
+      <td class="no-print" style="overflow:visible"><select style="width:100%" onchange="setAsig(${mm},${e.id},this.value)">
         <option value="">— ${esc(e.respMP||"sin sugerencia")} —</option>
         ${S.responsables.map(r=>`<option ${sel===r?"selected":""}>${esc(r)}</option>`).join("")}
       </select></td>
       <td class="solo-print">${esc(sel||e.respMP||"")}</td>
     </tr>`;}).join("");
   const cuenta={};
-  lista.forEach(e=>{ const r=asigMes[e.id]||e.respMP||"Sin asignar"; cuenta[r]=(cuenta[r]||0)+1; });
+  lista.forEach(e=>{ const r=valColAsig(e,"resp"); cuenta[r]=(cuenta[r]||0)+1; });
   const hayF=Object.keys(FCF.asig).length;
   return `
   <h2>Asignación mensual de mantenciones</h2>
   <div class="fila-filtros no-print">
     <button class="btn mini" onclick="vistaAsig='lista';render()">📋 Asignación</button>
     <button class="btn sec mini" onclick="vistaAsig='dist';render()">📊 Distribución</button>
-    <select onchange="mesAsig=+this.value;FCF.asig={};render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
-    <button class="btn" onclick="exportarAsigXLSX(${m})">⬇ Exportar Excel (.xlsx con desplegable)</button>
+    <select onchange="mesAsig=+this.value;FCF.asig={};render()">
+      <option value="-1" ${m<0?"selected":""}>📆 Todos los meses</option>
+      ${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+    <input type="text" id="asig-q" placeholder="Buscar serie, inventario…" value="${esc(filtroAsigQ)}" oninput="filtroAsigQ=this.value;render()">
+    ${m<0?"":`<button class="btn" onclick="exportarAsigXLSX(${m})">⬇ Exportar Excel (.xlsx con desplegable)</button>
     <button class="btn sec" onclick="exportarAsigCSV(${m})">⬇ CSV</button>
     <label class="btn sec" style="display:inline-block">⬆ Subir asignaciones
       <input type="file" accept=".xlsx,.xlsm" style="display:none" onchange="subirAsignaciones(this)"></label>
-    <span id="sub-estado" class="nota"></span>
+    <span id="sub-estado" class="nota"></span>`}
     <button class="btn sec" onclick="window.print()">🖨 Imprimir planilla</button>
     <button class="btn sec" onclick="autoAsignar(${m})">Sugerir según responsable MP</button>
     ${hayF?`<button class="btn mini sec" onclick="FCF.asig={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}
-    <span class="derecha nota">${lista.length} equipos con MP en ${MESES_L[m]}</span>
+    <span class="derecha nota">${lista.length} ${m<0?"MP en el año":"equipos con MP en "+MESES_L[m]}</span>
   </div>
   <div class="panel no-print"><h3>Resumen</h3>
     <div class="flex">${Object.entries(cuenta).sort((a,b)=>b[1]-a[1]).map(([r,n])=>`<span class="tag gris">${esc(r)}: ${n}</span>`).join(" ")}</div>
   </div>
   <h3 class="solo-print">Planilla de asignación — ${MESES_L[m]} ${ANIO} · Hospital Regional de Temuco</h3>
   <table class="fija">
-    <tr>${COLS_ASIG.map(c=>thFC("asig",c)).join("")}</tr>
-    ${filas||`<tr><td colspan="${COLS_ASIG.length}">Sin mantenciones este mes.</td></tr>`}
+    <tr>${colsAsig().map(c=>thFC("asig",c)).join("")}</tr>
+    ${filas||`<tr><td colspan="${colsAsig().length}">Sin mantenciones este mes.</td></tr>`}
   </table>`;
 }
 function exportarUltPrev(){
   const m=mesAsig;
+  
   const respSel=FCF.ult.resp&&FCF.ult.resp.size===1?[...FCF.ult.resp][0]:"";
   const filas=[["HOSPITAL REGIONAL DE TEMUCO — EQUIPAMIENTO CLÍNICO CRÍTICO"],
-    [`Distribución — último evento preventivo${respSel?` · Responsable: ${respSel}`:""} · ${MESES_L[m]} ${ANIO}`],
+    [`Distribución — último evento preventivo${respSel?` · Responsable: ${respSel}`:""} · ${m<0?"Año":MESES_L[m]} ${ANIO}`],
     [`Fecha de creación: ${fmtF(hoyISO())} · Generado por GEB`],[],
     ["ID","N° Carpeta","N° Inventario","Equipo","Marca","Modelo","Serie","Servicio","Responsable","Fecha últ. MP","Ejecutor","Detalle"]];
   fcFilas("ult",null).forEach(e=>{
@@ -1488,7 +1518,7 @@ function exportarUltPrev(){
   const suf=respSel?"_"+respSel.split(" ")[0]:"";
   const blob=xlsxCrear(filas,[],-1,3,"Último evento MP");
   const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob); a.download=`Ultimo_evento_MP_${MESES_L[m]}${suf}_${ANIO}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
+  a.href=URL.createObjectURL(blob); a.download=`Ultimo_evento_MP_${m<0?"Anual":MESES_L[m]}${suf}_${ANIO}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
 }
 function setAsig(m,id,v){ if(!S.asig[m])S.asig[m]={}; if(v)S.asig[m][id]=v; else delete S.asig[m][id]; guardar(); render(); }
 function autoAsignar(m){
