@@ -687,7 +687,7 @@ const COLS_INV=[
   {k:"servicio",n:"Servicio",w:"12%"},
   {k:"estado",n:"Estado",w:"10%"},
   {k:"pend",n:"Pend.",w:"4.5%"},
-  {k:"dias",n:"Días",w:"4.5%",nf:true},
+  {k:"dias",n:"Días",w:"4.5%"},
   {k:"act",n:"Últ. act.",w:"7.5%",cls:"oc-lg"}
 ];
 const COLS_PLAN=[
@@ -709,9 +709,11 @@ function valCol(e,k){
   if(k==="act"){ const f=S.fichas[e.id]; return f&&f.length?f[f.length-1].f:""; }
   if(k==="estado") return e.baja?"Baja":(e.estado||"Operativo");
   if(k==="dias"){
-    const f=(S.fichas[e.id]||[]).slice().reverse().find(ev=>ev.st);
-    const d=f?diasDesde(f.f):null;
-    return d==null?"":String(d);
+    const c=corrAbierto(e.id);
+    if(c){ const h=ultimoHito(c); return String(diasDesde(h?h.fecha:c.fecha)); }
+    const evs=S.fichas[e.id]||[];
+    const f=evs.slice().reverse().find(ev=>ev.st)||evs[evs.length-1];
+    return f?String(diasDesde(f.f)):"";
   }
   return String(e[k]??"").trim();
 }
