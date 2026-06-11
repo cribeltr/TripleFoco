@@ -5,9 +5,11 @@ Una fase a la vez; se cierra solo con validación del usuario.
 Al cerrar una fase: actualizar este archivo, anotar decisiones nuevas en
 `CLAUDE.md` y hacer commit.
 
-## Propuesta esperando OK del usuario
+## En curso (esperando validación del usuario)
 
-1. **Vista "Revisión y cierre" (Plan MP)**: todos los resultados vacíos de
+1. **Vista "Revisión y cierre" (Plan MP)** — IMPLEMENTADA 11-06-2026, falta
+   validación con uso real.
+   **Vista "Revisión y cierre" (Plan MP)**: todos los resultados vacíos de
    meses pasados en una lista única, con evidencia automática (correctivo
    abierto, estado, préstamo, familia externa, ejecución posterior =
    reprogramación implícita), causal asignable en línea y semáforo rojo de

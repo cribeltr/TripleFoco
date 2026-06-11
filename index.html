@@ -787,7 +787,13 @@ function basePlan(e){
 }
 /* ---- filtros tipo Excel, genéricos para varias tablas ---- */
 let fcTabla=null, fcAbierto=null, fcQ="", _fcVals=[];
-const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}, asig:{}, ult:{}, inf:{}, doc:{}};
+const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}, asig:{}, ult:{}, inf:{}, doc:{}, rev:{}};
+const COLS_REV=[
+  {k:"tipo",n:"Falta",w:"9%"},{k:"mesN",n:"Mes",w:"5%"},
+  {k:"inv",n:"Inventario",w:"8.5%"},{k:"equipo",n:"Equipo",w:"10%"},
+  {k:"servicio",n:"Servicio",w:"11%"},{k:"resp",n:"Responsable",w:"11%"},
+  {k:"evid",n:"Evidencia",w:"24%",nf:true},{k:"acc",n:"Acción",w:"15.5%",nf:true}
+];
 const COLS_INF=[
   {k:"servicio",n:"Servicio",w:"10.5%"},{k:"inv",n:"Inventario",w:"8%"},
   {k:"equipo",n:"Equipo",w:"10%"},{k:"ubic",n:"Ubicación",w:"9.5%",cls:"oc-lg"},
@@ -882,6 +888,8 @@ function fcCfg(t){
   if(t==="asig") return {cols:colsAsig(), base:baseAsig, val:valColAsig, rows:mesAsig<0?filasAsigTodos:null};
   if(t==="ult") return {cols:COLS_ULT, base:baseAsig, val:valColUlt};
   if(t==="inf") return {cols:COLS_INF, base:baseInf, val:valColInf};
+  if(t==="rev") return {cols:COLS_REV, base:()=>true,
+    val:(g,k)=>String(g[k]??""), rows:()=>_dist.rev||[]};
   if(t==="doc") return {cols:COLS_DOC, base:()=>true,
     val:(g,k)=>k==="est"?DOC_EST[g.est]:String(g[k]??""), rows:()=>_dist.docs||[]};
   if(t==="dej") return {cols:[{k:"k",n:"Ejecutor",w:"24%"},{k:"asig",n:"Asignadas",w:"12%"},
@@ -1328,7 +1336,79 @@ function vPlanDist(){
     </tr>`).join("")}</table></div>`;})()}
   ${tabla("dqp","Equipos con MP por estado")}`;
 }
+function calcRev(){
+  const hoyM = new Date().getFullYear()===ANIO ? new Date().getMonth() : 12;
+  const out=[];
+  S.equipos.forEach(e=>{
+    if(e.baja) return;
+    for(let m=0;m<hoyM;m++){
+      if(!["X","R","RA"].includes(e.plan[m])) continue;
+      const r=codResultado(e.resultado[m][1]);
+      const resp=(S.asig[m]||{})[e.id]||e.respMP||"(sin asignar)";
+      if(!r){
+        const ev=[];
+        let m2=-1; for(let k=m+1;k<12;k++) if(esEjecutada(codResultado(e.resultado[k][1]))){m2=k;break;}
+        if(m2>=0) ev.push(`✔ Ejecutada en ${MESES_L[m2]} → reprogramación implícita`);
+        const c=corrAbierto(e.id);
+        if(c){const h=ultimoHito(c);ev.push(`🛠 Caso #${c.id} ${estadoCorr(c)} (${diasDesde(h?h.fecha:c.fecha)} d)`);}
+        if(e.estado&&e.estado!=="Operativo") ev.push("⚠ Equipo "+e.estado);
+        if(FAM_EXTERNA.includes(e.fam)) ev.push("🏭 Familia externa");
+        if(/prest/i.test(e.obs||"")) ev.push("↔ "+e.obs.slice(0,38));
+        out.push({tipo:"Resultado", m, mesN:MESES[m], e, inv:e.inv||e.serie, equipo:e.equipo,
+          servicio:e.servicio, resp, evid:ev.join(" · ")||"—", key:null, papel:null});
+      } else if(/^C[1-8]$/.test(r)){
+        const key="rep-"+e.id+"-"+m;
+        const st=(S.docflow[key]||{}).st||"imprimir";
+        if(st!=="archivado")
+          out.push({tipo:"Papel", m, mesN:MESES[m], e, inv:e.inv||e.serie, equipo:e.equipo,
+            servicio:e.servicio, resp, evid:`Causal ${r} registrada · ${DOC_EST[st]}`, key, papel:st, r});
+      }
+    }
+  });
+  _dist.rev=out;
+  return out;
+}
+function vPlanRev(){
+  calcRev();
+  const lista=fcFilas("rev",null);
+  const nRes=lista.filter(g=>g.tipo==="Resultado").length;
+  const nPap=lista.filter(g=>g.tipo==="Papel").length;
+  const hayF=Object.keys(FCF.rev).length;
+  const opciones=r=>`<option value="">— elegir —</option>
+    <option value="SI">SI (ejecutada)</option><option value="SI-RA">SI-RA</option>
+    ${Object.keys(CAUSALES).map(c=>`<option value="${c}">${c} — ${esc(CAUSALES[c]).slice(0,40)}</option>`).join("")}
+    <option value="FS">FS</option><option value="NO">NO</option><option value="NU">NU</option><option value="BAJA">BAJA</option>`;
+  return `
+  <h2>🔍 Revisión y cierre — ciclos abiertos de meses pasados</h2>
+  <div class="fila-filtros">
+    <button class="btn sec mini" onclick="vistaPlan='control';render()">📋 Control de ejecución</button>
+    <button class="btn sec mini" onclick="vistaPlan='dist';render()">📊 Distribución</button>
+    <button class="btn mini" onclick="vistaPlan='rev';render()">🔍 Revisión y cierre</button>
+    <button class="btn" onclick="FCF.doc={tipo:new Set(['Reporte reprogramación'])};mesDoc=-1;tabActual='documentos';render()">📁 Imprimir lote en Documentos</button>
+    ${hayF?`<button class="btn mini sec" onclick="FCF.rev={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}
+    <span class="derecha nota"><span class="tag NO">${nRes} sin resultado</span> <span class="tag C">${nPap} con papel pendiente</span></span>
+  </div>
+  <p class="nota">Decide la causal <b>caso a caso</b> con la evidencia al lado; el papeleo se imprime en lote al final.
+  Rojo = papel sin archivar. El ciclo se cierra cuando el resultado está registrado Y el papel archivado en la carpeta.</p>
+  <table class="fija">
+    <tr>${COLS_REV.map(c=>thFC("rev",c)).join("")}</tr>
+    ${lista.map(g=>`<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${g.e.id}))">
+      <td>${g.tipo==="Papel"?'<span class="tag NO">📄 Papel</span>':'<span class="tag C">Resultado</span>'}</td>
+      <td><b>${g.mesN}</b></td>
+      <td>${esc(g.inv)}</td><td title="${esc(g.equipo)}">${esc(g.equipo)}</td>
+      <td title="${esc(g.servicio)}">${esc(g.servicio)}</td>
+      <td title="${esc(g.resp)}">${esc(g.resp)}</td>
+      <td class="nota" style="white-space:normal" title="${esc(g.evid)}">${g.evid}</td>
+      <td style="overflow:visible;white-space:normal">${g.tipo==="Resultado"
+        ?`<select style="width:100%" onchange="setResultado(${g.e.id},${g.m},this.value)">${opciones()}</select>`
+        :`<select style="width:100%" onchange="setDocEst('${g.key}','rep',${g.e.id},${g.m},this.value)">
+            ${Object.entries(DOC_EST).map(([k2,n2])=>`<option value="${k2}" ${g.papel===k2?"selected":""}>${n2}</option>`).join("")}
+          </select>`}</td>
+    </tr>`).join("")||`<tr><td colspan="${COLS_REV.length}">Sin ciclos abiertos en meses pasados. 🎉</td></tr>`}
+  </table>`;
+}
 function vPlan(){
+  if(vistaPlan==="rev") return vPlanRev();
   if(vistaPlan==="dist") return vPlanDist();
   const fams=[...new Set(S.equipos.map(e=>e.fam).filter(Boolean))].sort();
   const lista=fcFilas("plan",null);
@@ -1394,6 +1474,7 @@ function vPlan(){
     </select>
     <input type="text" id="plan-q" placeholder="Buscar…" value="${esc(filtrosPlan.q)}" oninput="filtrosPlan.q=this.value;render()">
     <button class="btn sec mini" onclick="vistaPlan='dist';render()">📊 Distribución</button>
+    <button class="btn sec mini" onclick="vistaPlan='rev';render()">🔍 Revisión y cierre</button>
     ${mesPlan>=0?`<button class="btn mini" style="background:var(--verde)" onclick="cierreMes(${mesPlan})">✅ Cierre de mes</button>`:""}
     ${hayFiltros?`<button class="btn mini sec" onclick="FCF.plan={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros de columna (${hayFiltros})</button>`:""}
     <span class="derecha nota">${resumen}</span>
@@ -2452,9 +2533,15 @@ async function importarMaestroUI(inp){
 let _repImp=null;
 function mostrarReporteImport(r){
   _repImp=r;
+  const papelDe=x=>{
+    if(!/^C[1-8]$/.test(codResultado(x.res))) return null;
+    return (S.docflow["rep-"+x.id+"-"+x.m]||{}).st||"imprimir";
+  };
   const filaSolo=x=>{const e=eq(x.id); const d=S.mpEjec[x.id+"-"+x.m]||{};
+    const pap=papelDe(x);
     return `<tr><td>${esc(e.inv)||esc(e.serie)}</td><td>${esc(e.equipo)} ${esc(e.marca)}</td>
     <td>${esc(e.servicio)}</td><td>${MESES[x.m]}</td><td>${tagRes(x.res)}</td>
+    <td>${pap===null?"":(pap==="archivado"?'<span class="tag SI">papel ✓</span>':'<span class="tag NO">papel pendiente</span>')}</td>
     <td class="nota">${d.f?fmtF(d.f):""} ${esc(d.e||"")} ${esc(d.st||"")}</td></tr>`;};
   const filaConf=x=>{const e=eq(x.id);
     return `<tr><td>${esc(e.inv)||esc(e.serie)}</td><td>${esc(e.equipo)} ${esc(e.marca)}</td>
@@ -2464,14 +2551,14 @@ function mostrarReporteImport(r){
   <h2>Diferencias con el Excel oficial</h2>
   ${r.soloApp.length?`
   <h3>⚠️ Registrado en la app pero FALTA en el Excel oficial (${r.soloApp.length})</h3>
-  <p class="nota">Estos resultados debes traspasarlos a la planilla oficial. Exporta la lista para tenerla a mano;
+  <p class="nota">Estos resultados debes traspasarlos a la planilla oficial. <b>Las causales solo deben traspasarse cuando su papel esté archivado</b> (rojo = aún no). Exporta la lista para tenerla a mano;
   al reimportar el Excel ya corregido, desaparecerán de este listado.</p>
   <div class="flex no-print" style="margin-bottom:8px">
     <button class="btn mini" onclick="exportarTraspaso()">⬇ Exportar lista de traspaso (CSV)</button>
     <button class="btn mini sec" onclick="window.print()">🖨 Imprimir</button>
   </div>
   <div class="tablewrap" style="max-height:35vh"><table>
-    <tr><th>Inventario</th><th>Equipo</th><th>Servicio</th><th>Mes</th><th>Resultado en la app</th><th>Ejecución</th></tr>
+    <tr><th>Inventario</th><th>Equipo</th><th>Servicio</th><th>Mes</th><th>Resultado en la app</th><th>Papel</th><th>Ejecución</th></tr>
     ${r.soloApp.map(filaSolo).join("")}
   </table></div>`:""}
   ${r.conflictos.length?`
@@ -2485,10 +2572,11 @@ function mostrarReporteImport(r){
 }
 function exportarTraspaso(){
   if(!_repImp) return;
-  const filas=[["ID","N° Inventario","Equipo","Servicio","Mes","Resultado (app)","Fecha ejecución","Ejecutor","Estado del equipo","Observaciones"]];
+  const filas=[["ID","N° Inventario","Equipo","Servicio","Mes","Resultado (app)","Papel","Fecha ejecución","Ejecutor","Estado del equipo","Observaciones"]];
   _repImp.soloApp.forEach(x=>{
     const e=eq(x.id), d=S.mpEjec[x.id+"-"+x.m]||{};
-    filas.push([e.id,e.inv,e.equipo,e.servicio,MESES_L[x.m],x.res,d.f||"",d.e||"",d.st||"",d.o||""]);
+    const pap=/^C[1-8]$/.test(codResultado(x.res))?((S.docflow["rep-"+x.id+"-"+x.m]||{}).st||"imprimir"):"";
+    filas.push([e.id,e.inv,e.equipo,e.servicio,MESES_L[x.m],x.res,pap==="archivado"?"archivado":(pap?"PENDIENTE":""),d.f||"",d.e||"",d.st||"",d.o||""]);
   });
   descargarCSV(filas,`Traspaso_a_Excel_${hoyISO()}.csv`);
 }
