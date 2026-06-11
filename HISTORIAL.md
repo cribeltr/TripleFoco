@@ -1,7 +1,5 @@
 # Historial de cambios — GEB
 
-Cronología de todo lo construido en la sesión original con Claude:
-
 - 10-06-2026 · Initial commit
 - 10-06-2026 · Agregar aplicación GEB: gestión de equipos biomédicos críticos HRT 2026
 - 10-06-2026 · Buscador en vivo de equipos y desplegable fijo de ejecutores
@@ -46,3 +44,8 @@ Cronología de todo lo construido en la sesión original con Claude:
 - 11-06-2026 · Asignación y Distribución: vista de todos los meses y buscador por serie/inventario
 - 11-06-2026 · Informe por servicio con columnas filtrables tipo Excel y responsable
 - 11-06-2026 · Módulo Documentos: flujo documental derivado de la planilla con impresión en lote
+- 11-06-2026 · Documentación de contexto del proyecto (CLAUDE.md e HISTORIAL.md)
+- 11-06-2026 · Grabadora de sesión para análisis de uso: clics, búsquedas y navegación exportables a JSON
+- 11-06-2026 · Registro de resultados desde la ficha del equipo y botones rápidos de fecha
+- 11-06-2026 · Adoptar CLAUDE.md actualizado (flujo real y método de trabajo) y PLAN.md por fases
+- 11-06-2026 · Fase 1: vista Revisión y cierre en Plan MP
