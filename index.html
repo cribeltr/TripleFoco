@@ -603,6 +603,7 @@ function vPanel(alertas){
       Impórtalo desde la pestaña <b>Datos</b> (archivo .json).</p>
     </div>`;
   }
+  if(mesPlan<0) mesPlan = new Date().getFullYear()===ANIO ? new Date().getMonth() : 0;
   const m = mesPlan;
   const sm = statsMes(m);
   const st = S.equipos.filter(e=>!e.baja && e.estado==="En servicio técnico");
@@ -761,13 +762,19 @@ function basePlan(e){
 }
 /* ---- filtros tipo Excel, genéricos para varias tablas ---- */
 let fcTabla=null, fcAbierto=null, fcQ="", _fcVals=[];
-const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}};
-let _dist={servicio:[],equipo:[]};
+const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}};
+let _dist={servicio:[],equipo:[],ej:[],eqp:[]};
 const COLS_DIST_NUM=[{k:"t",n:"Totales",w:"11%"},{k:"op",n:"Operativos",w:"11%"},
   {k:"no",n:"No operativos",w:"12%"},{k:"st",n:"En serv. técnico",w:"13%"},{k:"bj",n:"Baja",w:"10%"}];
 function fcCfg(t){
   if(t==="inv") return {cols:COLS_INV, base:pasaBusqueda, val:valCol};
   if(t==="plan") return {cols:colsPlan(), base:basePlan, val:valColPlan, rows:mesPlan<0?filasPlanTodos:null};
+  if(t==="dej") return {cols:[{k:"k",n:"Ejecutor",w:"24%"},{k:"asig",n:"Asignadas",w:"12%"},
+    {k:"si",n:"Ejecutadas (Si)",w:"13%"},{k:"causal",n:"Causal",w:"11%"},{k:"pend",n:"Pendientes",w:"12%"},
+    {k:"pct",n:"% Ejecutado",w:"13%"}], base:()=>true, val:(g,k)=>String(g[k]), rows:()=>_dist.ej};
+  if(t==="dqp") return {cols:[{k:"k",n:"Equipo",w:"24%"},{k:"t",n:"Con MP",w:"11%"},
+    {k:"op",n:"Operativos",w:"12%"},{k:"no",n:"No operativos",w:"13%"},{k:"st",n:"En serv. técnico",w:"14%"}],
+    base:()=>true, val:(g,k)=>String(g[k]), rows:()=>_dist.eqp};
   const campo=t==="dsrv"?"servicio":"equipo";
   return {cols:[{k:"k",n:campo==="servicio"?"Servicio":"Equipo",w:"30%"},...COLS_DIST_NUM],
     base:()=>true, val:(g,k)=>String(g[k]), rows:()=>_dist[campo]};
@@ -881,6 +888,7 @@ function tablaDist(campo,titulo){
     onclick="irInv('${campo}','${esc(k).replace(/'/g,"\\'")}'${est?`,'${est}'`:""})">${n}</td>`;
   const cfg=fcCfg(tkey);
   return `<div class="panel"><h3 style="margin-top:0">${titulo} (${lista.length})
+    <button class="btn mini sec" onclick="exportarResumen('${tkey}','${titulo}')">⬇ Exportar</button>
     ${hayF?`<button class="btn mini sec" onclick="FCF.${tkey}={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}</h3>
   <table class="fija"><tr>${cfg.cols.map(c=>thFC(tkey,c)).join("")}</tr>
   ${lista.map(g=>`<tr>
@@ -1069,7 +1077,69 @@ function delFicha(id,i){
 }
 
 /* ====================== Plan MP mensual ====================== */
+let vistaPlan="control";
+function mesesPlanScope(){ return mesPlan<0?[...Array(12).keys()]:[mesPlan]; }
+function calcDistPlan(){
+  const ej={}, eqp={};
+  mesesPlanScope().forEach(m=>{
+    S.equipos.forEach(e=>{
+      if(e.baja||!["X","R","RA"].includes(e.plan[m])) return;
+      const resp=(S.asig[m]||{})[e.id]||e.respMP||"(sin asignar)";
+      const g=ej[resp]=ej[resp]||{k:resp,asig:0,si:0,causal:0,pend:0,pct:0};
+      g.asig++;
+      const r=codResultado(e.resultado[m][1]);
+      if(esEjecutada(r))g.si++; else if(/^C/.test(r))g.causal++; else if(!r)g.pend++;
+      const q=eqp[e.equipo||"(sin dato)"]=eqp[e.equipo||"(sin dato)"]||{k:e.equipo||"(sin dato)",t:0,op:0,no:0,st:0,ids:new Set()};
+      if(!q.ids.has(e.id)){ q.ids.add(e.id); q.t++;
+        const s=e.estado||"Operativo";
+        if(s==="En servicio técnico")q.st++; else if(s==="Operativo")q.op++; else q.no++;
+      }
+    });
+  });
+  Object.values(ej).forEach(g=>g.pct=g.asig?Math.round(100*g.si/g.asig):0);
+  _dist.ej=Object.values(ej).sort((a,b)=>b.asig-a.asig);
+  _dist.eqp=Object.values(eqp).sort((a,b)=>b.t-a.t);
+}
+function exportarResumen(tkey,titulo){
+  const cfg=fcCfg(tkey);
+  const filas=[["HOSPITAL REGIONAL DE TEMUCO — EQUIPAMIENTO CLÍNICO CRÍTICO"],
+    [`${titulo} — ${mesPlan<0?"Todos los meses":MESES_L[mesPlan]+" "+ANIO}`],
+    [`Fecha de creación: ${fmtF(hoyISO())} · Generado por GEB`],[],
+    cfg.cols.map(c=>c.n)];
+  fcFilas(tkey,null).forEach(g=>filas.push(cfg.cols.map(c=>g[c.k])));
+  const blob=xlsxCrear(filas,[],-1,3,titulo.slice(0,30));
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=`${titulo.replace(/ /g,"_")}_${hoyISO()}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
+}
+function vPlanDist(){
+  calcDistPlan();
+  const tabla=(tkey,titulo)=>{
+    const cfg=fcCfg(tkey), lista=fcFilas(tkey,null), hayF=Object.keys(FCF[tkey]).length;
+    return `<div class="panel"><h3 style="margin-top:0">${titulo} (${lista.length})
+      <button class="btn mini sec" onclick="exportarResumen('${tkey}','${titulo}')">⬇ Exportar</button>
+      ${hayF?`<button class="btn mini sec" onclick="FCF.${tkey}={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}</h3>
+    <table class="fija"><tr>${cfg.cols.map(c=>thFC(tkey,c)).join("")}</tr>
+    ${lista.map(g=>`<tr><td title="${esc(g.k)}">${esc(g.k)}</td>
+      ${cfg.cols.slice(1).map(c=>{
+        const v=g[c.k];
+        if(c.k==="pct") return `<td><div class="flex"><div class="barra" style="flex:1"><div style="width:${v}%"></div></div> ${v}%</div></td>`;
+        return `<td style="text-align:center;font-weight:600">${v}</td>`;}).join("")}
+    </tr>`).join("")}</table></div>`;};
+  return `
+  <h2>Plan MP — Distribución</h2>
+  <div class="fila-filtros">
+    <button class="btn sec mini" onclick="vistaPlan='control';render()">📋 Control de ejecución</button>
+    <button class="btn mini" onclick="vistaPlan='dist';render()">📊 Distribución</button>
+    <select onchange="mesPlan=+this.value;FCF.dej={};FCF.dqp={};render()">
+      <option value="-1" ${mesPlan<0?"selected":""}>📆 Todos los meses</option>
+      ${MESES_L.map((n,i)=>`<option value="${i}" ${i===mesPlan?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+    <span class="nota">▾ filtra como en Excel · los números se actualizan con el mes</span>
+  </div>
+  ${tabla("dej","Cumplimiento por ejecutor")}
+  ${tabla("dqp","Equipos con MP por estado")}`;
+}
 function vPlan(){
+  if(vistaPlan==="dist") return vPlanDist();
   const fams=[...new Set(S.equipos.map(e=>e.fam).filter(Boolean))].sort();
   const lista=fcFilas("plan",null);
   const filas=lista.map(e=>{
@@ -1133,6 +1203,7 @@ function vPlan(){
       <option value="causal" ${filtrosPlan.solo==="causal"?"selected":""}>Solo con causal</option>
     </select>
     <input type="text" id="plan-q" placeholder="Buscar…" value="${esc(filtrosPlan.q)}" oninput="filtrosPlan.q=this.value;render()">
+    <button class="btn sec mini" onclick="vistaPlan='dist';render()">📊 Distribución</button>
     ${hayFiltros?`<button class="btn mini sec" onclick="FCF.plan={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros de columna (${hayFiltros})</button>`:""}
     <span class="derecha nota">${resumen}</span>
   </div>
