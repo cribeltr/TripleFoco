@@ -982,10 +982,6 @@ function pintarModalEquipo(){
     <div><b>Frecuencia MP</b>${esc(e.frec)||"—"}</div><div><b>ID</b>${e.id}</div>
   </div>
   <div class="flex">
-    <label>Estado:
-      <select onchange="cambiarEstado(${e.id},this.value)">
-        ${["Operativo","No operativo","En servicio técnico"].map(s=>`<option ${e.estado===s?"selected":""}>${s}</option>`).join("")}
-      </select></label>
     <button class="btn mini sec" onclick="toggleBaja(${e.id})">${e.baja?"Reactivar equipo":"Dar de baja"}</button>
     <button class="btn mini sec" onclick="nuevoCorrectivoDesde(${e.id})">+ Nuevo correctivo</button>
     <button class="btn mini sec" onclick="togglePendForm()">+ Nuevo pendiente</button>
@@ -1039,7 +1035,6 @@ function pintarModalEquipo(){
   </div>`;
 }
 function cerrarModal(){ $("#modal-fondo").classList.remove("abierto"); modalEqId=null; modalCorrId=null; render(); }
-function cambiarEstado(id,v){ const e=eq(id); e.estado=v; guardar(); pintarModalEquipo(); }
 function toggleBaja(id){
   const e=eq(id);
   if(!e.baja && !confirm(`¿Dar de baja el equipo ${e.inv||e.serie}? Se mantiene su historial.`)) return;
