@@ -684,10 +684,11 @@ const COLS_INV=[
   {k:"marca",n:"Marca",w:"9%",cls:"oc-md"},
   {k:"modelo",n:"Modelo",w:"10.5%",cls:"oc-sm"},
   {k:"serie",n:"Serie",w:"9.5%",cls:"oc-md"},
-  {k:"servicio",n:"Servicio",w:"13%"},
-  {k:"estado",n:"Estado",w:"10.5%"},
-  {k:"pend",n:"Pend.",w:"5.5%"},
-  {k:"act",n:"Últ. act.",w:"8.5%",cls:"oc-lg"}
+  {k:"servicio",n:"Servicio",w:"12%"},
+  {k:"estado",n:"Estado",w:"10%"},
+  {k:"pend",n:"Pend.",w:"4.5%"},
+  {k:"dias",n:"Días",w:"4.5%",nf:true},
+  {k:"act",n:"Últ. act.",w:"7.5%",cls:"oc-lg"}
 ];
 const COLS_PLAN=[
   {k:"id",n:"ID",w:"3.5%",cls:"oc-sm"},
@@ -707,6 +708,11 @@ function valCol(e,k){
   if(k==="pend") return String(S.pendientes.filter(x=>!x.done&&x.eqId===e.id).length);
   if(k==="act"){ const f=S.fichas[e.id]; return f&&f.length?f[f.length-1].f:""; }
   if(k==="estado") return e.baja?"Baja":(e.estado||"Operativo");
+  if(k==="dias"){
+    const f=(S.fichas[e.id]||[]).slice().reverse().find(ev=>ev.st);
+    const d=f?diasDesde(f.f):null;
+    return d==null?"":String(d);
+  }
   return String(e[k]??"").trim();
 }
 function valColPlan(e,k){
@@ -811,6 +817,11 @@ function thFC(t,c){
       onclick="event.stopPropagation();toggleFC('${t}','${c.k}')">▾</button>
     ${fcTabla===t&&fcAbierto===c.k?dropFC(t,c):""}</th>`;
 }
+function exportarInvFiltrado(){
+  const filas=[["ID","Carpeta","Inventario","Equipo","Marca","Modelo","Serie","Servicio","Unidad","Ubicación","Estado","Pendientes","Días en estado","Últ. actualización"]];
+  fcFilas("inv",null).forEach(e=>filas.push([e.id,e.carpeta,e.inv,e.equipo,e.marca,e.modelo,e.serie,e.servicio,e.unidad,e.ubicacion,valCol(e,"estado"),valCol(e,"pend"),valCol(e,"dias"),valCol(e,"act")]));
+  descargarCSV(filas,`Inventario_${hoyISO()}.csv`);
+}
 function vInventario(){
   const lista=fcFilas("inv",null);
   const filas=lista.slice(0,600).map(e=>{
@@ -823,12 +834,23 @@ function vInventario(){
       <td title="${esc(e.servicio)} · ${esc(e.unidad)} ${esc(e.ubicacion)}">${esc(e.servicio)}</td>
       <td>${e.baja?'<span class="tag BAJA">Baja</span>':tagEstado(e)}</td>
       <td>${np?`<span class="tag NO">${np}</span>`:'<span class="nota">0</span>'}</td>
+      <td>${valCol(e,"dias")||'<span class="nota">—</span>'}</td>
       <td class="oc-lg">${act?fmtF(act):'<span class="nota">—</span>'}</td>
     </tr>`;}).join("");
   const hayFiltros=Object.keys(FCF.inv).length;
+  const cuenta=v=>S.equipos.filter(e=>pasaBusqueda(e)&&valCol(e,"estado")===v).length;
+  const sel=FCF.inv.estado&&FCF.inv.estado.size===1?[...FCF.inv.estado][0]:null;
+  const tarjetaE=(v,cls)=>`<div class="card ${cls} clic" style="${sel===v?"outline:3px solid var(--azul)":""}"
+    onclick="FCF.inv.estado&&[...FCF.inv.estado][0]==='${v}'?delete FCF.inv.estado:FCF.inv.estado=new Set(['${v}']);render()">
+    <div class="num">${cuenta(v)}</div><div class="lbl">${v}</div></div>`;
   return `
   <h2>Inventario maestro (${lista.length} equipos)</h2>
+  <div class="cards">
+    ${tarjetaE("Operativo","verde")}${tarjetaE("En servicio técnico","ambar")}
+    ${tarjetaE("No operativo","rojo")}${tarjetaE("Baja","")}
+  </div>
   <div class="fila-filtros">
+    <button class="btn" onclick="exportarInvFiltrado()">⬇ Exportar a Excel</button>
     <input type="text" id="inv-q" placeholder="Buscar en todo el inventario…" value="${esc(filtros.q)}"
       oninput="filtros.q=this.value;render()" style="min-width:260px;flex:1">
     ${hayFiltros?`<button class="btn mini sec" onclick="FCF.inv={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros de columna (${hayFiltros})</button>`:""}
