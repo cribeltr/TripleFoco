@@ -1,0 +1,48 @@
+# Historial de cambios — GEB
+
+Cronología de todo lo construido en la sesión original con Claude:
+
+- 10-06-2026 · Initial commit
+- 10-06-2026 · Agregar aplicación GEB: gestión de equipos biomédicos críticos HRT 2026
+- 10-06-2026 · Buscador en vivo de equipos y desplegable fijo de ejecutores
+- 10-06-2026 · Conservar foco al escribir en buscadores y permitir eliminar registros
+- 10-06-2026 · Importar Excel maestro Programación MP desde la pestaña Datos
+- 10-06-2026 · Partir sin datos precargados: todo se carga importando el xlsm
+- 10-06-2026 · Registrar ejecutor en eventos de la ficha técnica
+- 10-06-2026 · Formulario con calendario para pendientes desde la ficha del equipo
+- 10-06-2026 · Mejoras según uso real: hitos cronológicos, cierre consistente y edición de eventos
+- 10-06-2026 · Trazabilidad de ejecución, diferencias con el Excel oficial e informe por servicio
+- 10-06-2026 · Buscador de pendientes y estado del equipo en eventos de la ficha técnica
+- 10-06-2026 · Gestión activa de pendientes (Eisenhower + sapo del día) y refresco de UI
+- 10-06-2026 · Hacer clickeable el recuadro o fila completa hacia su detalle
+- 10-06-2026 · Inventario con 11 columnas, ajuste a pantalla y filtros tipo Excel
+- 10-06-2026 · Distinguir pendientes de igual título y avisar duplicados
+- 10-06-2026 · Diseño fluido adaptado al ancho de pantalla
+- 10-06-2026 · Plan MP con columnas completas, filtros tipo Excel y diseño responsivo
+- 10-06-2026 · Vista Hoy como pantalla de inicio diaria y guía rápida integrada
+- 10-06-2026 · Mejoras de diseño en la ficha del equipo
+- 10-06-2026 · Exportar asignación a .xlsx con desplegable de ejecutores y subir asignaciones
+- 10-06-2026 · Vista Pendientes como tablero Kanban con columna Hecho
+- 11-06-2026 · Inventario: columna días en estado, tarjetas de estado filtrables y exportación
+- 11-06-2026 · Encabezado profesional en la exportación del inventario
+- 11-06-2026 · Exportación del inventario como Excel con formato profesional
+- 11-06-2026 · Columna Días en estado: cálculo desde correctivos/ficha y filtrable
+- 11-06-2026 · Hoja del Excel exportado con nombre propio y sin hoja Ejecutores en inventario
+- 11-06-2026 · Tarjeta Todos en inventario y nombre del Excel según estado filtrado
+- 11-06-2026 · Inventario con vistas Listado y Distribución por Servicio/Equipo navegables
+- 11-06-2026 · Filtros tipo Excel en las tablas de Distribución por Servicio y Equipo
+- 11-06-2026 · Nombres de servicio y equipo clickeables en las tablas de Distribución
+- 11-06-2026 · Plan MP: vista de todos los meses, columnas Estado equipo y Observación, sin Documentación
+- 11-06-2026 · Distribución en Plan MP por ejecutor y estado, filtrable y exportable
+- 11-06-2026 · Distribución por técnico con números navegables y tabla servicio x familia filtrable
+- 11-06-2026 · Quitar selector manual de estado en la ficha del equipo
+- 11-06-2026 · Integrar generador de reportes técnicos alimentado desde el inventario
+- 11-06-2026 · Cierre de mes asistido: checklist, navegación y resumen para jefatura
+- 11-06-2026 · Delegación de pendientes con responsable y verificación en Hoy
+- 11-06-2026 · Reportes técnicos en tamaño carta al 100%
+- 11-06-2026 · Ajustar contenedor de página de reportes a ancho carta
+- 11-06-2026 · Asignación: filtros tipo Excel por columna y vista Distribución con último evento preventivo (Excel/PDF)
+- 11-06-2026 · Distribución de asignación: ID y carpeta, filtros tipo Excel y descarga por responsable
+- 11-06-2026 · Asignación y Distribución: vista de todos los meses y buscador por serie/inventario
+- 11-06-2026 · Informe por servicio con columnas filtrables tipo Excel y responsable
+- 11-06-2026 · Módulo Documentos: flujo documental derivado de la planilla con impresión en lote
