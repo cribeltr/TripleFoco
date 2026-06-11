@@ -153,6 +153,7 @@ th{position:relative}
   <h1>GEB · Gestión de Equipos Biomédicos Críticos</h1>
   <span class="sub">Hospital Regional de Temuco — Programa 2026 · <span id="hoy-txt"></span></span>
   <button class="btn mini sec" style="margin-left:8px" onclick="abrirGuia()">❓ Guía</button>
+  <button class="btn mini sec" id="grab-btn" onclick="toggleGrab()">⏺ Grabar sesión</button>
   <span class="sub derecha" id="resumen-head"></span>
 </header>
 <nav id="nav">
@@ -442,6 +443,8 @@ function render(){
   const focoId=act&&act.id?act.id:null;
   let caret=null;
   if(focoId&&act.selectionStart!=null){ try{caret=act.selectionStart;}catch(e){} }
+  if(grab&&tabActual!==grab.ultTab){ grab.ultTab=tabActual;
+    grabEv({tipo:"pestaña", a:tabActual}); }
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("act",b.dataset.t===tabActual));
   const al = calcAlertas();
   const rojas = al.filter(a=>a.nivel==="rojo").length;
@@ -2707,6 +2710,60 @@ function montarReportes(){
   const fr=document.getElementById("rep-frame");
   if(fr) fr.srcdoc=REP_SRC.replace("__DATA_GEB__",JSON.stringify(datosReportes()));
 }
+
+/* ====================== Grabadora de sesión (análisis de uso) ====================== */
+let grab=null;
+function actGrabBtn(){
+  const b=document.getElementById("grab-btn");
+  if(!b) return;
+  if(grab){ b.textContent=`⏹ Detener (${grab.eventos.length})`; b.style.background="var(--rojo)"; b.style.color="#fff"; }
+  else { b.textContent="⏺ Grabar sesión"; b.style.background=""; b.style.color=""; }
+}
+function toggleGrab(){
+  if(!grab){
+    grab={ini:Date.now(), iniISO:new Date().toISOString(), eventos:[], ultTab:tabActual};
+    grab.eventos.push({t:0, tipo:"inicio", tab:tabActual});
+    actGrabBtn();
+    alert("Grabando: se registran clics, búsquedas, filtros y cambios de vista.\nUsa la aplicación con normalidad y presiona ⏹ Detener cuando termines.\nNo recargues la página durante la grabación.");
+    return;
+  }
+  const dur=Math.round((Date.now()-grab.ini)/1000);
+  const porTipo={}, porTab={};
+  grab.eventos.forEach(ev=>{ porTipo[ev.tipo]=(porTipo[ev.tipo]||0)+1; porTab[ev.tab]=(porTab[ev.tab]||0)+1; });
+  const salida={
+    app:"GEB", fecha:grab.iniISO, duracion_seg:dur,
+    resumen:{eventos:grab.eventos.length, por_tipo:porTipo, por_pestana:porTab},
+    contexto:{equipos:S.equipos.length, pendientes_abiertos:S.pendientes.filter(x=>!x.done).length,
+      correctivos_abiertos:S.correctivos.filter(c=>!c.cerrado).length, ultimaImport:S.ultimaImport||null},
+    eventos:grab.eventos
+  };
+  grab=null; actGrabBtn();
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(salida,null,1)],{type:"application/json"}));
+  a.download=`GEB_grabacion_${hoyISO()}_${new Date().toTimeString().slice(0,5).replace(":","")}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+  alert(`Grabación exportada: ${salida.resumen.eventos} eventos en ${dur}s.\nComparte el archivo .json en el chat para analizarlo y proponer mejoras.`);
+}
+function grabEv(ev){
+  if(!grab) return;
+  grab.eventos.push(Object.assign({t:Math.round((Date.now()-grab.ini)/100)/10, tab:tabActual},ev));
+  if(grab.eventos.length%5===0) actGrabBtn();
+}
+document.addEventListener("click",ev=>{
+  if(!grab||ev.target.closest("#grab-btn")) return;
+  const t=ev.target.closest("button,a,select,input,label,th,tr,.clic,.card,.alerta,.item-p")||ev.target;
+  grabEv({tipo:"clic", el:t.tagName.toLowerCase(), id:t.id||"",
+    txt:(t.textContent||t.value||"").trim().replace(/\s+/g," ").slice(0,70)});
+},true);
+document.addEventListener("input",ev=>{
+  if(!grab) return;
+  grabEv({tipo:"escribe", id:ev.target.id||"", val:String(ev.target.value).slice(0,80)});
+},true);
+document.addEventListener("change",ev=>{
+  if(!grab) return;
+  grabEv({tipo:"selecciona", el:ev.target.tagName.toLowerCase(), id:ev.target.id||"",
+    val:String(ev.target.value).slice(0,80)});
+},true);
 
 /* ====================== Inicio ====================== */
 document.getElementById("nav").addEventListener("click",ev=>{
