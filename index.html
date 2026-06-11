@@ -743,11 +743,16 @@ function basePlan(e){
 }
 /* ---- filtros tipo Excel, genéricos para varias tablas ---- */
 let fcTabla=null, fcAbierto=null, fcQ="", _fcVals=[];
-const FCF={inv:{}, plan:{}};
+const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}};
+let _dist={servicio:[],equipo:[]};
+const COLS_DIST_NUM=[{k:"t",n:"Totales",w:"11%"},{k:"op",n:"Operativos",w:"11%"},
+  {k:"no",n:"No operativos",w:"12%"},{k:"st",n:"En serv. técnico",w:"13%"},{k:"bj",n:"Baja",w:"10%"}];
 function fcCfg(t){
-  return t==="inv"
-    ? {cols:COLS_INV, base:pasaBusqueda, val:valCol}
-    : {cols:COLS_PLAN, base:basePlan, val:valColPlan};
+  if(t==="inv") return {cols:COLS_INV, base:pasaBusqueda, val:valCol};
+  if(t==="plan") return {cols:COLS_PLAN, base:basePlan, val:valColPlan};
+  const campo=t==="dsrv"?"servicio":"equipo";
+  return {cols:[{k:"k",n:campo==="servicio"?"Servicio":"Equipo",w:"30%"},...COLS_DIST_NUM],
+    base:()=>true, val:(g,k)=>String(g[k]), rows:()=>_dist[campo]};
 }
 function fcPasa(t,e,excepto){
   const cfg=fcCfg(t), fs=FCF[t];
@@ -760,7 +765,7 @@ function fcPasa(t,e,excepto){
 }
 function fcFilas(t,excepto){
   const cfg=fcCfg(t);
-  return S.equipos.filter(e=>cfg.base(e)&&fcPasa(t,e,excepto));
+  return (cfg.rows?cfg.rows():S.equipos).filter(e=>cfg.base(e)&&fcPasa(t,e,excepto));
 }
 function toggleFC(t,k){
   if(fcTabla===t&&fcAbierto===k){ fcTabla=null; fcAbierto=null; }
@@ -841,21 +846,27 @@ function irInv(campo,valor,estado){
   vistaInv="listado"; render();
 }
 function tablaDist(campo,titulo){
+  const tkey=campo==="servicio"?"dsrv":"deq";
   const grupos={};
   S.equipos.forEach(e=>{
     const k=String(e[campo]||"(sin dato)").trim()||"(sin dato)";
-    const g=grupos[k]=grupos[k]||{t:0,op:0,no:0,st:0,bj:0};
+    const g=grupos[k]=grupos[k]||{k:k,t:0,op:0,no:0,st:0,bj:0};
     g.t++;
     const s=valCol(e,"estado");
     if(s==="Baja")g.bj++; else if(s==="Operativo")g.op++;
     else if(s==="En servicio técnico")g.st++; else g.no++;
   });
+  _dist[campo]=Object.values(grupos).sort((a,b)=>b.t-a.t);
+  const lista=fcFilas(tkey,null);
+  const hayF=Object.keys(FCF[tkey]).length;
   const celda=(k,n,est)=>`<td class="clic" style="text-align:center;${n?"font-weight:600":""};color:${n?"var(--azul-osc)":"var(--gris)"}"
     onclick="irInv('${campo}','${esc(k).replace(/'/g,"\\'")}'${est?`,'${est}'`:""})">${n}</td>`;
-  return `<div class="panel"><h3 style="margin-top:0">${titulo}</h3>
-  <table class="fija"><tr><th>${titulo.split(" por ")[1]||campo}</th><th style="width:11%">Totales</th><th style="width:11%">Operativos</th><th style="width:12%">No operativos</th><th style="width:13%">En serv. técnico</th><th style="width:10%">Baja</th></tr>
-  ${Object.entries(grupos).sort((a,b)=>b[1].t-a[1].t).map(([k,g])=>`<tr>
-    <td title="${esc(k)}">${esc(k)}</td>${celda(k,g.t,null)}${celda(k,g.op,"Operativo")}${celda(k,g.no,"No operativo")}${celda(k,g.st,"En servicio técnico")}${celda(k,g.bj,"Baja")}
+  const cfg=fcCfg(tkey);
+  return `<div class="panel"><h3 style="margin-top:0">${titulo} (${lista.length})
+    ${hayF?`<button class="btn mini sec" onclick="FCF.${tkey}={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}</h3>
+  <table class="fija"><tr>${cfg.cols.map(c=>thFC(tkey,c)).join("")}</tr>
+  ${lista.map(g=>`<tr>
+    <td title="${esc(g.k)}">${esc(g.k)}</td>${celda(g.k,g.t,null)}${celda(g.k,g.op,"Operativo")}${celda(g.k,g.no,"No operativo")}${celda(g.k,g.st,"En servicio técnico")}${celda(g.k,g.bj,"Baja")}
   </tr>`).join("")}</table></div>`;
 }
 function vInventario(){
