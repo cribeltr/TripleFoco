@@ -1111,6 +1111,34 @@ function exportarResumen(tkey,titulo){
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download=`${titulo.replace(/ /g,"_")}_${hoyISO()}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
 }
+let ejDist="";
+function irPlanEj(resp,tipo){
+  vistaPlan="control"; FCF.plan={resp:new Set([resp])};
+  if(tipo==="si") FCF.plan.res=new Set(["SI","SI-RA"]);
+  else if(tipo==="causal") FCF.plan.res=new Set(Object.keys(CAUSALES));
+  else if(tipo==="pend") FCF.plan.res=new Set(["(pendiente)"]);
+  render();
+}
+function irPlanSrv(srv,fam){
+  vistaPlan="control"; FCF.plan={servicio:new Set([srv])};
+  filtrosPlan.fam=fam||"";
+  if(ejDist) FCF.plan.resp=new Set([ejDist]);
+  render();
+}
+function calcSrvFam(){
+  const fams=[...new Set(S.equipos.map(e=>e.fam).filter(Boolean))].sort();
+  const filas={};
+  mesesPlanScope().forEach(m=>{
+    S.equipos.forEach(e=>{
+      if(e.baja||!["X","R","RA"].includes(e.plan[m])) return;
+      const resp=(S.asig[m]||{})[e.id]||e.respMP||"(sin asignar)";
+      if(ejDist&&resp!==ejDist) return;
+      const f=filas[e.servicio||"(sin dato)"]=filas[e.servicio||"(sin dato)"]||{t:0};
+      f[e.fam]=(f[e.fam]||0)+1; f.t++;
+    });
+  });
+  return {fams,filas};
+}
 function vPlanDist(){
   calcDistPlan();
   const tabla=(tkey,titulo)=>{
@@ -1123,6 +1151,8 @@ function vPlanDist(){
       ${cfg.cols.slice(1).map(c=>{
         const v=g[c.k];
         if(c.k==="pct") return `<td><div class="flex"><div class="barra" style="flex:1"><div style="width:${v}%"></div></div> ${v}%</div></td>`;
+        if(tkey==="dej") return `<td class="clic" style="text-align:center;font-weight:600;color:var(--azul-osc)"
+          title="Ver en Control de ejecución" onclick="irPlanEj('${esc(g.k).replace(/'/g,"\\'")}','${c.k}')">${v}</td>`;
         return `<td style="text-align:center;font-weight:600">${v}</td>`;}).join("")}
     </tr>`).join("")}</table></div>`;};
   return `
@@ -1135,7 +1165,26 @@ function vPlanDist(){
       ${MESES_L.map((n,i)=>`<option value="${i}" ${i===mesPlan?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
     <span class="nota">▾ filtra como en Excel · los números se actualizan con el mes</span>
   </div>
-  ${tabla("dej","Cumplimiento por ejecutor")}
+  ${tabla("dej","Distribución por técnico")}
+  ${(function(){
+    const {fams,filas}=calcSrvFam();
+    return `<div class="panel"><h3 style="margin-top:0">Distribución por servicio
+      <select onchange="ejDist=this.value;render()" style="font-size:12px">
+        <option value="">— todos los técnicos —</option>
+        ${S.responsables.map(r2=>`<option ${ejDist===r2?"selected":""}>${esc(r2)}</option>`).join("")}
+        <option ${ejDist==="(sin asignar)"?"selected":""}>(sin asignar)</option>
+      </select></h3>
+    <p class="nota">MP programadas en el período${ejDist?` del técnico ${esc(ejDist)}`:""}. Presiona un número para abrir el Control de ejecución filtrado.</p>
+    <table class="fija"><tr><th style="width:22%">Servicio</th><th style="width:8%">Total</th>
+      ${fams.map(f=>`<th>${esc(f)}</th>`).join("")}</tr>
+    ${Object.entries(filas).sort((a,b)=>b[1].t-a[1].t).map(([srv,g])=>`<tr>
+      <td class="clic" style="color:var(--azul-osc);font-weight:600" title="Ver todas las MP de ${esc(srv)}"
+        onclick="irPlanSrv('${esc(srv).replace(/'/g,"\\'")}','')">${esc(srv)}</td>
+      <td class="clic" style="text-align:center;font-weight:600" onclick="irPlanSrv('${esc(srv).replace(/'/g,"\\'")}','')">${g.t}</td>
+      ${fams.map(f=>{const n=g[f]||0;
+        return `<td class="clic" style="text-align:center;${n?"font-weight:600;color:var(--azul-osc)":"color:var(--gris)"}"
+          onclick="irPlanSrv('${esc(srv).replace(/'/g,"\\'")}','${esc(f)}')">${n}</td>`;}).join("")}
+    </tr>`).join("")}</table></div>`;})()}
   ${tabla("dqp","Equipos con MP por estado")}`;
 }
 function vPlan(){
