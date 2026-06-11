@@ -532,6 +532,18 @@ function vHoy(alertas){
             <span class="tag st">${estadoCorr(c)}</span> <span class="tag NO">${diasDesde(h?h.fecha:c.fecha)} días</span>
             <span class="nota">resp: ${esc(h?.ingeniero||c.ingeniero||"—")}</span>`,"",`abrirCorrectivo(${c.id})`);}).join("")||'<p class="nota">Todo al día. ✅</p>'}
       </div>
+      ${(function(){
+        const dels=S.pendientes.filter(p2=>!p2.done&&p2.deleg);
+        if(!dels.length) return "";
+        return `<div class="panel" style="border-left:4px solid var(--ambar)">
+          <h3 style="margin-top:0">👥 Delegaciones por verificar (${dels.length})</h3>
+          <p class="nota">Tú respondes por estas tareas: pregunta cómo van y anota la respuesta.</p>
+          ${dels.map(p2=>{const u=p2.updates[p2.updates.length-1];
+            const d2=u?diasDesde(u.f):null;
+            return fila(`<b>${esc(p2.titulo)}</b> <span class="tag st">👥 ${esc(p2.deleg)}</span>
+              ${p2.limite?`<span class="tag ${pendVencido(p2)?"NO":"gris"}">${fmtF(p2.limite)}</span>`:""}
+              <span class="nota">${u?`últ. novedad hace ${d2} día(s)`:"sin novedades"}</span>`,"",`verPendiente(${p2.id})`);}).join("")}
+        </div>`;})()}
       <div class="panel">
         <h3 style="margin-top:0">4️⃣ Mantenciones de ${MESES_L[m]}</h3>
         <div class="flex">
@@ -1730,7 +1742,7 @@ let filtroPend="";
 function coincidePend(p,q){
   if(!q) return true;
   const e=p.eqId?eq(p.eqId):null;
-  const blob=[p.titulo,p.notas,
+  const blob=[p.titulo,p.notas,p.deleg||"",
     ...(p.sub||[]).map(s=>s.t),
     ...(p.updates||[]).map(u=>u.t),
     e?`${e.inv} ${e.serie} ${e.carpeta} ${e.equipo} ${e.marca} ${e.modelo} ${e.servicio}`:""
@@ -1750,6 +1762,11 @@ function vPendientes(){
         <label class="subtarea"><input type="checkbox" ${p.done?"checked":""} onchange="togglePend(${p.id})"></label>
         <b style="${p.done?"text-decoration:line-through;color:var(--gris)":""}">${esc(p.titulo)}</b>
         ${p.prio?`<span class="tag" style="background:${PRIO[p.prio].bg};color:${PRIO[p.prio].c}">${PRIO[p.prio].n}</span>`:""}
+        ${!p.done?`<select class="prio-sel" onchange="setDeleg(${p.id},this.value)" title="Delegar a…">
+          <option value="">👥 ${p.deleg?esc(p.deleg):"delegar a…"}</option>
+          ${S.responsables.map(r2=>`<option ${p.deleg===r2?"selected":""}>${esc(r2)}</option>`).join("")}
+          ${p.deleg?'<option value="--">✕ quitar delegación</option>':""}
+        </select>`:(p.deleg?`<span class="tag gris">👥 ${esc(p.deleg)}</span>`:"")}
         ${!p.done?`<button class="btn-sapo ${p.sapo?"act":""}" title="Sapo de hoy" onclick="setSapo(${p.id})">🐸</button>`:""}
         ${p.limite?`<span class="tag ${vencido?"NO":"gris"}">límite ${fmtF(p.limite)}</span>`:""}
         ${e?`<button class="btn mini sec" onclick="abrirEquipo(${e.id})"
@@ -1810,6 +1827,7 @@ function vPendientes(){
           const e2=p2.eqId?eq(p2.eqId):null;
           return `<div class="item-p clic" onclick="clickFila(event,()=>verPendiente(${p2.id}))">
             <span class="tit"><b>${esc(p2.titulo)}</b><br>
+              ${p2.deleg?`<span class="tag st">👥 ${esc(p2.deleg)}</span>`:""}
               ${e2?`<span class="tag gris">${esc(e2.inv||e2.serie)} · ${esc(e2.servicio)}</span>`:""}
               ${p2.limite?`<span class="tag ${pendVencido(p2)?"NO":"gris"}">${fmtF(p2.limite)}</span>`:""}</span>
             <span style="white-space:nowrap">
@@ -1896,6 +1914,13 @@ function addSub(id){
 function addUpd(id){
   const inp=$("#upd-"+id); const t=inp.value.trim(); if(!t) return;
   S.pendientes.find(x=>x.id===id).updates.push({f:hoyISO(),t}); guardar(); render();
+}
+function setDeleg(id,v){
+  const pd=S.pendientes.find(x=>x.id===id);
+  if(v==="--"){ pd.deleg=null; }
+  else if(v){ pd.deleg=v; if(!pd.prio) pd.prio=3;
+    pd.updates.push({f:hoyISO(),t:"Delegado a "+v}); }
+  guardar(); render();
 }
 function delPend(id){
   const p=S.pendientes.find(x=>x.id===id);
