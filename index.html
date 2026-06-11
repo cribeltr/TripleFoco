@@ -818,7 +818,13 @@ function thFC(t,c){
     ${fcTabla===t&&fcAbierto===c.k?dropFC(t,c):""}</th>`;
 }
 function exportarInvFiltrado(){
-  const filas=[["ID","Carpeta","Inventario","Equipo","Marca","Modelo","Serie","Servicio","Unidad","Ubicación","Estado","Pendientes","Días en estado","Últ. actualización"]];
+  const sel=FCF.inv.estado&&FCF.inv.estado.size===1?[...FCF.inv.estado][0]:null;
+  const filas=[
+    ["HOSPITAL REGIONAL DE TEMUCO — EQUIPAMIENTO CLÍNICO CRÍTICO"],
+    [`Inventario de equipos${sel?` — Estado: ${sel}`:""}${filtros.q?` — Búsqueda: "${filtros.q}"`:""}`],
+    [`Fecha de creación: ${fmtF(hoyISO())} · Generado por GEB`],
+    [],
+    ["ID","Carpeta","Inventario","Equipo","Marca","Modelo","Serie","Servicio","Unidad","Ubicación","Estado","Pendientes","Días en estado","Últ. actualización"]];
   fcFilas("inv",null).forEach(e=>filas.push([e.id,e.carpeta,e.inv,e.equipo,e.marca,e.modelo,e.serie,e.servicio,e.unidad,e.ubicacion,valCol(e,"estado"),valCol(e,"pend"),valCol(e,"dias"),valCol(e,"act")]));
   descargarCSV(filas,`Inventario_${hoyISO()}.csv`);
 }
