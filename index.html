@@ -776,7 +776,31 @@ function basePlan(e){
 }
 /* ---- filtros tipo Excel, genéricos para varias tablas ---- */
 let fcTabla=null, fcAbierto=null, fcQ="", _fcVals=[];
-const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}, asig:{}, ult:{}};
+const FCF={inv:{}, plan:{}, dsrv:{}, deq:{}, dej:{}, dqp:{}, asig:{}, ult:{}, inf:{}};
+const COLS_INF=[
+  {k:"servicio",n:"Servicio",w:"10.5%"},{k:"inv",n:"Inventario",w:"8%"},
+  {k:"equipo",n:"Equipo",w:"10%"},{k:"ubic",n:"Ubicación",w:"9.5%",cls:"oc-lg"},
+  {k:"prog",n:"Prog.",w:"4.5%"},{k:"res",n:"Resultado",w:"7%"},
+  {k:"f",n:"Fecha ejec.",w:"7.5%"},{k:"ej",n:"Ejecutor",w:"10%",cls:"oc-md"},
+  {k:"resp",n:"Responsable",w:"10%"},{k:"st",n:"Estado del equipo",w:"9.5%"},
+  {k:"obs",n:"Observaciones",w:"13%",nf:true}
+];
+function valColInf(e,k){
+  const m=mesInf, d=S.mpEjec[e.id+"-"+m]||{};
+  const r=codResultado(e.resultado[m][1]);
+  if(k==="prog") return e.plan[m]||"";
+  if(k==="res") return r||"(pendiente)";
+  if(k==="f") return d.f||"";
+  if(k==="ej") return d.e||"(sin ejecutor)";
+  if(k==="resp") return (S.asig[m]||{})[e.id]||e.respMP||"(sin asignar)";
+  if(k==="st") return d.st||e.estado||"";
+  if(k==="ubic") return `${e.unidad||""} ${e.ubicacion||""}`.trim();
+  if(k==="obs") return (d.o||"")+(/^C/.test(r)?" "+(CAUSALES[r]||""):"");
+  return String(e[k]??"").trim();
+}
+function baseInf(e){
+  return !e.baja && ["X","R","RA","PM"].includes(e.plan[mesInf]) && (!servInf||e.servicio===servInf);
+}
 const COLS_ULT=[
   {k:"id",n:"ID",w:"4%",cls:"oc-sm"},{k:"carpeta",n:"Carpeta",w:"5.5%"},
   {k:"inv",n:"Inventario",w:"8.5%"},{k:"equipo",n:"Equipo",w:"11%"},
@@ -846,6 +870,7 @@ function fcCfg(t){
   if(t==="plan") return {cols:colsPlan(), base:basePlan, val:valColPlan, rows:mesPlan<0?filasPlanTodos:null};
   if(t==="asig") return {cols:colsAsig(), base:baseAsig, val:valColAsig, rows:mesAsig<0?filasAsigTodos:null};
   if(t==="ult") return {cols:COLS_ULT, base:baseAsig, val:valColUlt};
+  if(t==="inf") return {cols:COLS_INF, base:baseInf, val:valColInf};
   if(t==="dej") return {cols:[{k:"k",n:"Ejecutor",w:"24%"},{k:"asig",n:"Asignadas",w:"12%"},
     {k:"si",n:"Ejecutadas (Si)",w:"13%"},{k:"causal",n:"Causal",w:"11%"},{k:"pend",n:"Pendientes",w:"12%"},
     {k:"pct",n:"% Ejecutado",w:"13%"}], base:()=>true, val:(g,k)=>String(g[k]), rows:()=>_dist.ej};
@@ -2425,58 +2450,56 @@ let mesInf = new Date().getFullYear()===ANIO ? new Date().getMonth() : 0;
 let servInf = "";
 function vInformes(){
   const m=mesInf;
-  const conMP=S.equipos.filter(e=>!e.baja && ["X","R","RA","PM"].includes(e.plan[m]));
-  const servicios=[...new Set(conMP.map(e=>e.servicio).filter(Boolean))].sort();
-  const lista=conMP.filter(e=>!servInf||e.servicio===servInf);
-  const grupos={};
-  lista.forEach(e=>{ const s=e.servicio||"(sin servicio)"; (grupos[s]=grupos[s]||[]).push(e); });
-  const bloque=(srv,eqs)=>`
-    <h3 style="page-break-before:auto">${esc(srv)} — ${MESES_L[m]} ${ANIO}</h3>
-    <table style="margin-bottom:14px">
-      <tr><th>Inventario</th><th>Equipo</th><th>Ubicación</th><th>Prog.</th><th>Resultado</th>
-      <th>Fecha ejec.</th><th>Ejecutor</th><th>Estado del equipo</th><th>Observaciones</th></tr>
-      ${eqs.map(e=>{
-        const r=codResultado(e.resultado[m][1]);
-        const d=S.mpEjec[e.id+"-"+m]||{};
-        const est=d.st || e.estado || "";
-        const clsEst=est==="Operativo"?"op":(est==="En servicio técnico"?"st":"nop");
-        return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))"><td>${esc(e.inv)||esc(e.serie)}</td>
-        <td>${esc(e.equipo)} ${esc(e.marca)} ${esc(e.modelo)}</td>
-        <td>${esc(e.unidad)} ${esc(e.ubicacion)}</td>
-        <td>${tagPlan(e.plan[m])}</td>
-        <td>${tagRes(r)||'<span class="nota">pendiente</span>'}</td>
-        <td>${d.f?fmtF(d.f):"—"}</td><td>${esc(d.e||"")}</td>
-        <td>${est?`<span class="tag ${clsEst}">${esc(est)}</span>`:""}</td>
-        <td class="nota">${esc(d.o||"")}${/^C/.test(r)?` ${esc(CAUSALES[r]||"")}`:""}</td></tr>`;
-      }).join("")}
-    </table>`;
+  const servicios=[...new Set(S.equipos.filter(e=>!e.baja&&["X","R","RA","PM"].includes(e.plan[m])).map(e=>e.servicio).filter(Boolean))].sort();
+  const lista=fcFilas("inf",null);
+  const hayF=Object.keys(FCF.inf).length;
+  const filas=lista.map(e=>{
+    const r=codResultado(e.resultado[m][1]);
+    const d=S.mpEjec[e.id+"-"+m]||{};
+    const st=valColInf(e,"st");
+    const clsEst=st==="Operativo"?"op":(st==="En servicio técnico"?"st":"nop");
+    return `<tr class="clic" onclick="clickFila(event,()=>abrirEquipo(${e.id}))">
+      <td title="${esc(e.servicio)}">${esc(e.servicio)}</td>
+      <td>${esc(e.inv)||esc(e.serie)}</td>
+      <td title="${esc(e.equipo)} ${esc(e.marca)} ${esc(e.modelo)}">${esc(e.equipo)}</td>
+      <td class="oc-lg" title="${esc(valColInf(e,"ubic"))}">${esc(valColInf(e,"ubic"))}</td>
+      <td>${tagPlan(e.plan[m])}</td>
+      <td>${tagRes(r)||'<span class="tag NO">pendiente</span>'}</td>
+      <td>${d.f?fmtF(d.f):"—"}</td>
+      <td class="oc-md" title="${esc(d.e||"")}">${esc(d.e||"")}</td>
+      <td title="${esc(valColInf(e,"resp"))}">${esc(valColInf(e,"resp"))}</td>
+      <td>${st?`<span class="tag ${clsEst}">${esc(st)}</span>`:""}</td>
+      <td class="nota" title="${esc(valColInf(e,"obs"))}">${esc(valColInf(e,"obs"))}</td>
+    </tr>`;}).join("");
   return `
   <h2>Informe mensual de mantenciones por servicio clínico</h2>
   <div class="fila-filtros no-print">
-    <select onchange="mesInf=+this.value;render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
-    <select onchange="servInf=this.value;render()">
+    <select onchange="mesInf=+this.value;FCF.inf={};render()">${MESES_L.map((n,i)=>`<option value="${i}" ${i===m?"selected":""}>${n} ${ANIO}</option>`).join("")}</select>
+    <select onchange="servInf=this.value;FCF.inf={};render()">
       <option value="">— Todos los servicios —</option>
       ${servicios.map(s=>`<option ${servInf===s?"selected":""}>${esc(s)}</option>`).join("")}
     </select>
     <button class="btn" onclick="exportarInformeCSV()">⬇ Exportar Excel (CSV)</button>
-    <button class="btn sec" onclick="window.print()">🖨 Imprimir informe</button>
-    <span class="derecha nota">${lista.length} equipos con MP en ${MESES_L[m]}</span>
+    <button class="btn sec" onclick="window.print()">🖨 Imprimir / PDF</button>
+    ${hayF?`<button class="btn mini sec" onclick="FCF.inf={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}
+    <span class="derecha nota">${lista.length} equipos · ${MESES_L[m]}</span>
   </div>
+  <p class="nota no-print">▾ filtra como en Excel: ej. Resultado = causal o "(pendiente)" + Responsable = un técnico → lo que le falta a esa persona, sin anotar pendientes a mano.</p>
   <p class="solo-print"><b>Hospital Regional de Temuco — Equipamiento clínico crítico</b><br>
-  Informe de mantenciones preventivas y estado de equipos · ${MESES_L[m]} ${ANIO}</p>
-  ${Object.entries(grupos).sort((a,b)=>a[0]<b[0]?-1:1).map(([s,eqs])=>bloque(s,eqs)).join("")
-    ||'<p class="nota">Sin mantenciones programadas para este filtro.</p>'}`;
+  Informe de mantenciones preventivas y estado de equipos · ${servInf?esc(servInf)+" · ":""}${MESES_L[m]} ${ANIO}</p>
+  <table class="fija">
+    <tr>${COLS_INF.map(c=>thFC("inf",c)).join("")}</tr>
+    ${filas||`<tr><td colspan="${COLS_INF.length}">Sin mantenciones para este filtro.</td></tr>`}
+  </table>`;
 }
 function exportarInformeCSV(){
   const m=mesInf;
-  const filas=[["Servicio","N° Inventario","Equipo","Marca","Modelo","Unidad","Ubicación","Programado","Resultado","Fecha ejecución","Ejecutor","Estado del equipo","Observaciones"]];
-  S.equipos.forEach(e=>{
-    if(e.baja||!["X","R","RA","PM"].includes(e.plan[m])) return;
-    if(servInf&&e.servicio!==servInf) return;
+  const filas=[["Servicio","N° Inventario","Equipo","Marca","Modelo","Unidad","Ubicación","Programado","Resultado","Fecha ejecución","Ejecutor","Responsable","Estado del equipo","Observaciones"]];
+  fcFilas("inf",null).forEach(e=>{
     const r=codResultado(e.resultado[m][1]);
     const d=S.mpEjec[e.id+"-"+m]||{};
     filas.push([e.servicio,e.inv,e.equipo,e.marca,e.modelo,e.unidad,e.ubicacion,e.plan[m],
-      r||"Pendiente",d.f||"",d.e||"",d.st||e.estado||"",(d.o||"")+(/^C/.test(r)?" "+(CAUSALES[r]||""):"")]);
+      r||"Pendiente",d.f||"",d.e||"",valColInf(e,"resp"),valColInf(e,"st"),(d.o||"")+(/^C/.test(r)?" "+(CAUSALES[r]||""):"")]);
   });
   descargarCSV(filas,`Informe_servicios_${MESES_L[m]}_${ANIO}.csv`);
 }
