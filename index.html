@@ -828,9 +828,10 @@ function exportarInvFiltrado(){
     [],
     ["ID","Carpeta","Inventario","Equipo","Marca","Modelo","Serie","Servicio","Unidad","Ubicación","Estado","Pendientes","Días en estado","Últ. actualización"]];
   fcFilas("inv",null).forEach(e=>filas.push([e.id,e.carpeta,e.inv,e.equipo,e.marca,e.modelo,e.serie,e.servicio,e.unidad,e.ubicacion,valCol(e,"estado"),valCol(e,"pend"),valCol(e,"dias"),valCol(e,"act")]));
-  const blob=xlsxCrear(filas,[],-1,3,"Inventario");
+  const nombre=sel?(sel==="En servicio técnico"?"Servicio técnico":sel):"Inventario";
+  const blob=xlsxCrear(filas,[],-1,3,nombre);
   const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob); a.download=`Inventario_${hoyISO()}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
+  a.href=URL.createObjectURL(blob); a.download=`${nombre.replace(/ /g,"_")}_${hoyISO()}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
 }
 function vInventario(){
   const lista=fcFilas("inv",null);
@@ -856,6 +857,9 @@ function vInventario(){
   return `
   <h2>Inventario maestro (${lista.length} equipos)</h2>
   <div class="cards">
+    <div class="card azul clic" style="${!FCF.inv.estado?"outline:3px solid var(--azul)":""}"
+      onclick="delete FCF.inv.estado;render()">
+      <div class="num">${S.equipos.filter(e=>pasaBusqueda(e)).length}</div><div class="lbl">Todos</div></div>
     ${tarjetaE("Operativo","verde")}${tarjetaE("En servicio técnico","ambar")}
     ${tarjetaE("No operativo","rojo")}${tarjetaE("Baja","")}
   </div>
