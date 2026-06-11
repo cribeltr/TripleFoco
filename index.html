@@ -261,6 +261,11 @@ function verPendiente(id){
 }
 function esc(t){ return String(t==null?"":t).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function hoyISO(){ return new Date().toISOString().slice(0,10); }
+function ayerISO(){ const d=new Date(Date.now()-86400000); return d.toISOString().slice(0,10); }
+function btnsFecha(idInput){
+  return `<button type="button" class="btn mini sec" style="padding:4px 7px" onclick="$('#${idInput}').value=hoyISO()">hoy</button>
+  <button type="button" class="btn mini sec" style="padding:4px 7px" onclick="$('#${idInput}').value=ayerISO()">ayer</button>`;
+}
 function fmtF(iso){ if(!iso) return "—"; const [a,m,d]=iso.split("-"); return `${d}-${m}-${a}`; }
 function diasDesde(iso){ if(!iso) return null; return Math.floor((Date.now()-new Date(iso+"T12:00:00"))/86400000); }
 function finDeMes(m){ return new Date(ANIO, m+1, 0); }
@@ -1078,7 +1083,10 @@ function pintarModalEquipo(){
   const mesHoy = new Date().getFullYear()===ANIO ? new Date().getMonth() : -1;
   const grilla = MESES.map((mn,i)=>{
     const p=e.plan[i], r=codResultado(e.resultado[i][1]);
-    return `<div class="mc ${i===mesHoy?"actual":""}" title="${i===mesHoy?"Mes actual":""}"><b>${mn}</b>${tagPlan(p)||"·"}<br>${tagRes(r)||""}</div>`;
+    const editable=!!p||!!r;
+    return `<div class="mc ${i===mesHoy?"actual":""} ${editable?"clic":""}"
+      ${editable?`onclick="abrirRegistroMes(${e.id},${i})" title="Clic para registrar el resultado de ${MESES_L[i]}"`:""}>
+      <b>${mn}</b>${tagPlan(p)||"·"}<br>${tagRes(r)||""}</div>`;
   }).join("");
   $("#modal").innerHTML = `
   <button class="cerrar" onclick="cerrarModal()">×</button>
@@ -1114,7 +1122,7 @@ function pintarModalEquipo(){
       <h3>Ficha técnica (historial)</h3>
       <div class="form-suave no-print">
       <div class="flex">
-        <input type="date" id="ft-fecha" value="${hoyISO()}">
+        <input type="date" id="ft-fecha" value="${hoyISO()}"> ${btnsFecha("ft-fecha")}
         <input type="text" id="ft-texto" placeholder="Ej: mantención preventiva, equipo operativo" style="flex:1">
       </div>
       <div class="flex" style="margin-top:5px">
@@ -1143,6 +1151,34 @@ function pintarModalEquipo(){
         <b>${esc(p.titulo)}</b>Límite: ${fmtF(p.limite)}</div>`).join(""):'<p class="nota">Sin pendientes.</p>'}
     </div>
   </div>`;
+}
+let volverEq=null;
+function abrirRegistroMes(id,m){
+  const e=eq(id);
+  const r=codResultado(e.resultado[m][1]);
+  volverEq=id;
+  $("#modal").innerHTML=`
+  <button class="cerrar" onclick="cerrarModal()">×</button>
+  <h2>Registrar resultado — ${MESES_L[m]} ${ANIO}</h2>
+  <p class="nota">${esc(nombreEq(e))} · Inv. ${esc(e.inv)||"s/n"} · ${esc(e.servicio)} · Plan: ${tagPlan(e.plan[m])||"—"}</p>
+  <p>Mismo flujo que el Plan MP: <b>SI</b> abre el formulario de ejecución (fecha, ejecutor, estado, observaciones)
+  y escribe la ficha técnica solo; una <b>causal</b> registra la reprogramación, su plazo y genera el documento.
+  <b>No escribas esto a mano en la ficha técnica.</b></p>
+  <select id="rm-res" style="font-size:15px;padding:8px">
+    <option value="">— pendiente —</option>
+    <option ${r==="SI"?"selected":""} value="SI">SI (ejecutada)</option>
+    <option ${r==="SI-RA"?"selected":""} value="SI-RA">SI-RA (de año anterior)</option>
+    ${Object.keys(CAUSALES).map(c=>`<option ${r===c?"selected":""} value="${c}">${c} — ${esc(CAUSALES[c]).slice(0,50)}</option>`).join("")}
+    <option ${r==="FS"?"selected":""} value="FS">FS (fuera de servicio)</option>
+    <option ${r==="NO"?"selected":""} value="NO">NO (no realizada)</option>
+    <option ${r==="NU"?"selected":""} value="NU">NU (no ubicable)</option>
+    <option ${r==="BAJA"?"selected":""} value="BAJA">BAJA</option>
+  </select>
+  <div class="flex" style="margin-top:12px">
+    <button class="btn" onclick="setResultado(${id},${m},$('#rm-res').value)">Guardar</button>
+    <button class="btn sec" onclick="volverEq=null;abrirEquipo(${id})">Cancelar</button>
+  </div>`;
+  $("#modal-fondo").classList.add("abierto");
 }
 function cerrarModal(){ $("#modal-fondo").classList.remove("abierto"); modalEqId=null; modalCorrId=null; render(); }
 function toggleBaja(id){
@@ -1399,7 +1435,9 @@ function setResultado(id,m,v){
     e.baja=true;
     agregarFicha(id,hoyISO(),"Equipo dado de baja");
   }
-  guardar(); render();
+  guardar();
+  if(volverEq){ const x=volverEq; volverEq=null; abrirEquipo(x); }
+  else render();
 }
 function setDoc(k,c,v){ if(!S.docs[k])S.docs[k]={}; S.docs[k][c]=v; guardar(); render(); }
 function abrirEjecucion(id,m,v){
@@ -1411,7 +1449,7 @@ function abrirEjecucion(id,m,v){
   <h2>Registrar ejecución de MP — ${esc(nombreEq(e))}</h2>
   <p class="nota">Inv. ${esc(e.inv)||"s/n"} · ${esc(e.servicio)} · ${MESES_L[m]} ${ANIO} · resultado en planilla: <b>${esc(v)}</b></p>
   <div class="flex">
-    <label>Fecha de ejecución<br><input type="date" id="me-fecha" value="${d.f||hoyISO()}"></label>
+    <label>Fecha de ejecución<br><input type="date" id="me-fecha" value="${d.f||hoyISO()}"> ${btnsFecha("me-fecha")}</label>
     <label>Ejecutor<br>${selEjecutores("me-ejec",sug,true)}</label>
     <label>Estado del equipo tras la MP<br>
       <select id="me-estado">
@@ -1439,7 +1477,9 @@ function guardarEjecucion(id,m,v){
   S.mpEjec[id+"-"+m]={f:fecha,e:ejec,st:est,o:obs};
   e.estado=est;
   agregarFicha(id,fecha,`Mantención preventiva de ${MESES_L[m]} ejecutada${v==="SI-RA"?" (correspondiente al año anterior)":""}.${obs?" "+obs:""}`,ejec,est);
-  guardar(); cerrarModal();
+  guardar();
+  if(volverEq){ const x=volverEq; volverEq=null; abrirEquipo(x); }
+  else cerrarModal();
 }
 
 /* ====================== Asignación mensual ====================== */
@@ -1712,7 +1752,7 @@ function nuevoCorrectivoDesde(eqId){
   ${acHTML("nc-eq","Ej: 2-115361 · ASJL-0008 · ventilador UPC…")}
   <p class="nota" id="nc-eq-sel">Escribe y elige el equipo de la lista de coincidencias.</p>
   <div class="flex">
-    <label>Fecha de la falla<br><input type="date" id="nc-fecha" value="${hoyISO()}"></label>
+    <label>Fecha de la falla<br><input type="date" id="nc-fecha" value="${hoyISO()}"> ${btnsFecha("nc-fecha")}</label>
     <label>Folio solicitud SIGEM<br><input type="text" id="nc-folio" placeholder="Ej: 2026-121109-19-7177"></label>
     <label>Ingeniero asignado<br>${selEjecutores("nc-ing","",true)}</label>
   </div>
@@ -1771,7 +1811,7 @@ function pintarModalCorr(){
       ${!c.cerrado?`<div class="panel no-print">
         <div class="flex">
           <select id="hito-tipo" onchange="pintarCamposHito()">${opcionesHito}</select>
-          <input type="date" id="hito-fecha" value="${hoyISO()}">
+          <input type="date" id="hito-fecha" value="${hoyISO()}"> ${btnsFecha("hito-fecha")}
         </div>
         <div id="hito-campos" style="margin-top:8px"></div>
         <button class="btn mini" style="margin-top:8px" onclick="addHito(${c.id})">Registrar hito</button>
