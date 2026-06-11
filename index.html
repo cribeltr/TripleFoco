@@ -866,7 +866,8 @@ function tablaDist(campo,titulo){
     ${hayF?`<button class="btn mini sec" onclick="FCF.${tkey}={};fcAbierto=null;fcTabla=null;render()">✕ Quitar filtros (${hayF})</button>`:""}</h3>
   <table class="fija"><tr>${cfg.cols.map(c=>thFC(tkey,c)).join("")}</tr>
   ${lista.map(g=>`<tr>
-    <td title="${esc(g.k)}">${esc(g.k)}</td>${celda(g.k,g.t,null)}${celda(g.k,g.op,"Operativo")}${celda(g.k,g.no,"No operativo")}${celda(g.k,g.st,"En servicio técnico")}${celda(g.k,g.bj,"Baja")}
+    <td class="clic" style="color:var(--azul-osc);font-weight:600" title="Ver todos los equipos de ${esc(g.k)}"
+      onclick="irInv('${campo}','${esc(g.k).replace(/'/g,"\\'")}')">${esc(g.k)}</td>${celda(g.k,g.t,null)}${celda(g.k,g.op,"Operativo")}${celda(g.k,g.no,"No operativo")}${celda(g.k,g.st,"En servicio técnico")}${celda(g.k,g.bj,"Baja")}
   </tr>`).join("")}</table></div>`;
 }
 function vInventario(){
