@@ -833,7 +833,42 @@ function exportarInvFiltrado(){
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download=`${nombre.replace(/ /g,"_")}_${hoyISO()}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
 }
+let vistaInv="listado";
+function irInv(campo,valor,estado){
+  FCF.inv={};
+  FCF.inv[campo]=new Set([valor]);
+  if(estado) FCF.inv.estado=new Set([estado]);
+  vistaInv="listado"; render();
+}
+function tablaDist(campo,titulo){
+  const grupos={};
+  S.equipos.forEach(e=>{
+    const k=String(e[campo]||"(sin dato)").trim()||"(sin dato)";
+    const g=grupos[k]=grupos[k]||{t:0,op:0,no:0,st:0,bj:0};
+    g.t++;
+    const s=valCol(e,"estado");
+    if(s==="Baja")g.bj++; else if(s==="Operativo")g.op++;
+    else if(s==="En servicio técnico")g.st++; else g.no++;
+  });
+  const celda=(k,n,est)=>`<td class="clic" style="text-align:center;${n?"font-weight:600":""};color:${n?"var(--azul-osc)":"var(--gris)"}"
+    onclick="irInv('${campo}','${esc(k).replace(/'/g,"\\'")}'${est?`,'${est}'`:""})">${n}</td>`;
+  return `<div class="panel"><h3 style="margin-top:0">${titulo}</h3>
+  <table class="fija"><tr><th>${titulo.split(" por ")[1]||campo}</th><th style="width:11%">Totales</th><th style="width:11%">Operativos</th><th style="width:12%">No operativos</th><th style="width:13%">En serv. técnico</th><th style="width:10%">Baja</th></tr>
+  ${Object.entries(grupos).sort((a,b)=>b[1].t-a[1].t).map(([k,g])=>`<tr>
+    <td title="${esc(k)}">${esc(k)}</td>${celda(k,g.t,null)}${celda(k,g.op,"Operativo")}${celda(k,g.no,"No operativo")}${celda(k,g.st,"En servicio técnico")}${celda(k,g.bj,"Baja")}
+  </tr>`).join("")}</table></div>`;
+}
 function vInventario(){
+  if(vistaInv==="dist"){
+    return `<h2>Inventario maestro — Distribución</h2>
+    <div class="fila-filtros">
+      <button class="btn sec mini" onclick="vistaInv='listado';render()">📋 Listado</button>
+      <button class="btn mini" onclick="vistaInv='dist';render()">📊 Distribución</button>
+      <span class="nota">Presiona cualquier número para ver esos equipos en el listado filtrado.</span>
+    </div>
+    ${tablaDist("servicio","Distribución por Servicio")}
+    ${tablaDist("equipo","Distribución por Equipo")}`;
+  }
   const lista=fcFilas("inv",null);
   const filas=lista.slice(0,600).map(e=>{
     const np=+valCol(e,"pend");
@@ -864,6 +899,8 @@ function vInventario(){
     ${tarjetaE("No operativo","rojo")}${tarjetaE("Baja","")}
   </div>
   <div class="fila-filtros">
+    <button class="btn mini" onclick="vistaInv='listado';render()">📋 Listado</button>
+    <button class="btn sec mini" onclick="vistaInv='dist';render()">📊 Distribución</button>
     <button class="btn" onclick="exportarInvFiltrado()">⬇ Exportar a Excel</button>
     <input type="text" id="inv-q" placeholder="Buscar en todo el inventario…" value="${esc(filtros.q)}"
       oninput="filtros.q=this.value;render()" style="min-width:260px;flex:1">
